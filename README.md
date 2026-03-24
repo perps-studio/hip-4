@@ -2,6 +2,8 @@
 
 Zero-dependency TypeScript SDK for Hyperliquid HIP-4 prediction markets.
 
+[Open demo integration →](https://demo.prps.app)
+
 ---
 
 ## Quick Walkthrough
@@ -223,10 +225,6 @@ The msgpack encoder and keccak-256 are implemented inline (~350 lines). Hash out
 |---|---|---|---|
 | **Testnet** | `api-ui.hyperliquid-testnet.xyz/info` | `api-ui.hyperliquid-testnet.xyz/exchange` | `wss://api-ui.hyperliquid-testnet.xyz/ws` |
 | **Mainnet** | `api.hyperliquid.xyz/info` | `api.hyperliquid.xyz/exchange` | `wss://api.hyperliquid.xyz/ws` |
-
-### Demo
-
-[h4d](https://h4d.pages.dev) — Vite + React SPA built exclusively with this SDK.
 
 ### License
 
