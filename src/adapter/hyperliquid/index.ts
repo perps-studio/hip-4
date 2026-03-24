@@ -39,10 +39,11 @@ export class HyperliquidHip4Adapter implements PredictionsAdapter {
     });
 
     const auth = new HIP4Auth();
-    this.events = new HIP4EventAdapter(this.client);
+    const eventAdapter = new HIP4EventAdapter(this.client);
+    this.events = eventAdapter;
     this._marketData = new HIP4MarketDataAdapter(this.client);
     this.marketData = this._marketData;
-    this.account = new HIP4AccountAdapter(this.client);
+    this.account = new HIP4AccountAdapter(this.client, eventAdapter);
     this.trading = new HIP4TradingAdapter(this.client, auth);
     this.auth = auth;
   }

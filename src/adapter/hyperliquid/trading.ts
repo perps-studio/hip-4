@@ -200,7 +200,7 @@ export class HIP4TradingAdapter implements PredictionTradingAdapter {
       const nonce = Date.now();
       const signature = await signL1Action({
         signer,
-        action: sortedAction as unknown as Record<string, unknown>,
+        action: sortedAction,
         nonce,
         isTestnet: this.client.testnet,
       });
@@ -256,7 +256,7 @@ export class HIP4TradingAdapter implements PredictionTradingAdapter {
     const nonce = Date.now();
     const signature = await signL1Action({
       signer,
-      action: sortedAction as unknown as Record<string, unknown>,
+      action: sortedAction,
       nonce,
       isTestnet: this.client.testnet,
     });

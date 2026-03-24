@@ -18,8 +18,10 @@ import type {
   PredictionCancelParams,
 } from "../types/trading";
 
+/** Callback returned by subscribe methods; call it to unsubscribe. */
 export type Unsubscribe = () => void;
 
+/** Top-level adapter that groups all prediction-market sub-adapters. */
 export interface PredictionsAdapter {
   readonly id: string;
   readonly name: string;
@@ -30,11 +32,14 @@ export interface PredictionsAdapter {
   readonly trading: PredictionTradingAdapter;
   readonly auth: PredictionAuthAdapter;
 
+  /** Initialize connections and internal state. Must be called before use. */
   initialize(): Promise<void>;
+  /** Tear down connections and clean up subscriptions. */
   destroy(): void;
 }
 
 export interface PredictionEventAdapter {
+  /** List events with optional filters (category, active, limit, offset, query). */
   fetchEvents(params?: {
     category?: string;
     active?: boolean;
@@ -42,14 +47,20 @@ export interface PredictionEventAdapter {
     offset?: number;
     query?: string;
   }): Promise<PredictionEvent[]>;
+  /** Fetch a single event by ID. IDs are "q<n>" for questions, "o<n>" for standalone outcomes. */
   fetchEvent(eventId: string): Promise<PredictionEvent>;
+  /** List available categories (e.g. "custom", "recurring"). */
   fetchCategories(): Promise<PredictionCategory[]>;
 }
 
 export interface PredictionMarketDataAdapter {
+  /** Fetch the order book for a market. marketId is the outcome ID as string; sideIndex defaults to 0 (Yes). */
   fetchOrderBook(marketId: string, sideIndex?: number): Promise<PredictionOrderBook>;
+  /** Fetch the current price for both sides of a market. Names are generic ("Side 0"/"Side 1") -- use event.markets[].outcomes[].name for real names. */
   fetchPrice(marketId: string): Promise<PredictionPrice>;
+  /** Fetch recent trades for a market. */
   fetchTrades(marketId: string, limit?: number): Promise<PredictionTrade[]>;
+  /** Fetch OHLCV candles for a market. Defaults to 1h interval, 14 days lookback. */
   fetchCandles(
     marketId: string,
     interval?: string,
@@ -57,14 +68,17 @@ export interface PredictionMarketDataAdapter {
     endTime?: number,
   ): Promise<Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }>>;
 
+  /** Subscribe to real-time order book updates. Returns an unsubscribe callback. */
   subscribeOrderBook(
     marketId: string,
     onData: (book: PredictionOrderBook) => void,
   ): Unsubscribe;
+  /** Subscribe to real-time price updates. Returns an unsubscribe callback. */
   subscribePrice(
     marketId: string,
     onData: (price: PredictionPrice) => void,
   ): Unsubscribe;
+  /** Subscribe to real-time trade updates. Returns an unsubscribe callback. */
   subscribeTrades(
     marketId: string,
     onData: (trade: PredictionTrade) => void,
@@ -72,9 +86,13 @@ export interface PredictionMarketDataAdapter {
 }
 
 export interface PredictionAccountAdapter {
+  /** Fetch all open positions for an address. */
   fetchPositions(address: string): Promise<PredictionPosition[]>;
+  /** Fetch account activity (trades, redeems, deposits, withdrawals) for an address. */
   fetchActivity(address: string): Promise<PredictionActivity[]>;
+  /** Fetch raw spot balances (including USDH) for an address. */
   fetchBalance(address: string): Promise<Array<{ coin: string; total: string; hold: string }>>;
+  /** Fetch resting limit orders from frontendOpenOrders for an address. */
   fetchOpenOrders(address: string): Promise<Array<{
     coin: string;
     side: "B" | "A";
@@ -83,6 +101,7 @@ export interface PredictionAccountAdapter {
     oid: number;
     timestamp: number;
   }>>;
+  /** Subscribe to position changes. Polls at 10s interval (no WS channel for spot). */
   subscribePositions(
     address: string,
     onData: (positions: PredictionPosition[]) => void,
@@ -90,15 +109,20 @@ export interface PredictionAccountAdapter {
 }
 
 export interface PredictionTradingAdapter {
+  /** Place a market or limit order. Returns { success, orderId?, status?, shares?, error? } -- never throws. */
   placeOrder(params: PredictionOrderParams): Promise<PredictionOrderResult>;
+  /** Cancel a resting order. Throws on failure. */
   cancelOrder(params: PredictionCancelParams): Promise<void>;
 }
 
 export interface PredictionAuthAdapter {
+  /** Initialize auth with a wallet. Accepts a viem PrivateKeyAccount or ethers Signer. */
   initAuth(
     walletAddress: string,
     signer: unknown,
   ): Promise<PredictionAuthState>;
+  /** Return the current authentication state. */
   getAuthStatus(): PredictionAuthState;
+  /** Clear stored auth credentials and reset state to disconnected. */
   clearAuth(): void;
 }

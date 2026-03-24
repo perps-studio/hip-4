@@ -1,3 +1,4 @@
+/** An open position in a prediction market outcome. */
 export interface PredictionPosition {
   marketId: string;
   eventTitle: string;
@@ -11,6 +12,7 @@ export interface PredictionPosition {
   eventStatus: "active" | "pending_resolution" | "resolved";
 }
 
+/** A historical account activity entry (trade, redeem, deposit, or withdrawal). */
 export interface PredictionActivity {
   id: string;
   type: "trade" | "redeem" | "deposit" | "withdrawal";
@@ -23,6 +25,7 @@ export interface PredictionActivity {
   timestamp: number;
 }
 
+/** Current authentication state for the trading adapter. */
 export interface PredictionAuthState {
   status: "disconnected" | "pending_approval" | "ready";
   address?: string;

@@ -12,6 +12,7 @@ export interface PredictionsAdapterProviderProps {
   children: ReactNode;
 }
 
+/** React provider that initializes a PredictionsAdapter and makes it available via context. */
 export function PredictionsAdapterProvider({
   adapter,
   children,
@@ -33,6 +34,7 @@ export function PredictionsAdapterProvider({
   );
 }
 
+/** Return the PredictionsAdapter from the nearest PredictionsAdapterProvider. Throws if none exists. */
 export function usePredictionsAdapter(): PredictionsAdapter {
   const adapter = useContext(PredictionsAdapterContext);
   if (!adapter) {

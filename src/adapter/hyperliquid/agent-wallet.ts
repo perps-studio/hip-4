@@ -10,6 +10,7 @@ const HL_EIP712_DOMAIN = {
 const HL_MAINNET_API = "https://api.hyperliquid.xyz";
 const HL_TESTNET_API = "https://api.hyperliquid-testnet.xyz";
 
+/** Build EIP-712 typed data for an agent-wallet approval signature. */
 export function getAgentApprovalTypedData(
   agentAddress: `0x${string}`,
   agentName: string,
@@ -36,6 +37,7 @@ export function getAgentApprovalTypedData(
   };
 }
 
+/** Submit a signed agent-approval transaction to the Hyperliquid exchange API. */
 export async function submitAgentApproval(
   signature: `0x${string}`,
   agentAddress: `0x${string}`,

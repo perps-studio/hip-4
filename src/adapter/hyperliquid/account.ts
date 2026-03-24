@@ -9,10 +9,16 @@ import type {
   PredictionActivity,
   PredictionPosition,
 } from "../../types/account";
+import type { PredictionEvent } from "../../types/event";
 import type { PredictionAccountAdapter, Unsubscribe } from "../types";
 import type { HIP4Client } from "./client";
 import { coinOutcomeId, isOutcomeCoin, parseSideCoin } from "./client";
 import type { HLFill } from "./types";
+
+/** Minimal interface for fetching event data (avoids importing the full event adapter class). */
+interface EventDataSource {
+  fetchEvents(params?: { limit?: number }): Promise<PredictionEvent[]>;
+}
 
 const POLL_INTERVAL_MS = 10_000;
 
@@ -25,6 +31,7 @@ interface SpotBalance {
 function mapSpotBalance(
   bal: SpotBalance,
   allMids: Record<string, string>,
+  nameMap: Map<string, { eventTitle: string; marketQuestion: string }>,
 ): PredictionPosition | null {
   const coin = bal.coin;
   if (!isOutcomeCoin(coin)) return null;
@@ -46,10 +53,11 @@ function mapSpotBalance(
   const unrealizedPnl = (currentPrice - avgCost) * total;
   const potentialPayout = total;
 
+  const names = nameMap.get(marketId);
   return {
     marketId,
-    eventTitle: "",
-    marketQuestion: "",
+    eventTitle: names?.eventTitle ?? "",
+    marketQuestion: names?.marketQuestion ?? "",
     outcome,
     shares: total.toFixed(6),
     avgCost: avgCost.toFixed(6),
@@ -79,20 +87,33 @@ function mapFill(raw: HLFill): PredictionActivity | null {
 }
 
 export class HIP4AccountAdapter implements PredictionAccountAdapter {
-  constructor(private readonly client: HIP4Client) {}
+  constructor(
+    private readonly client: HIP4Client,
+    private readonly events?: EventDataSource,
+  ) {}
 
   async fetchPositions(address: string): Promise<PredictionPosition[]> {
-    const [state, allMids] = await Promise.all([
+    const [state, allMids, eventList] = await Promise.all([
       this.client.fetchSpotClearinghouseState(address),
       this.client.fetchAllMids(),
+      this.events?.fetchEvents({ limit: 200 }).catch(() => [] as PredictionEvent[]) ??
+        Promise.resolve([] as PredictionEvent[]),
     ]);
+
+    // Build name lookup: marketId (outcome ID string) → { eventTitle, marketQuestion }
+    const nameMap = new Map<string, { eventTitle: string; marketQuestion: string }>();
+    for (const event of eventList) {
+      for (const market of event.markets) {
+        nameMap.set(market.id, { eventTitle: event.title, marketQuestion: market.question });
+      }
+    }
 
     const positions: PredictionPosition[] = [];
     for (const bal of state.balances) {
       if (!isOutcomeCoin(bal.coin)) continue;
       if (parseFloat(bal.total) === 0) continue;
 
-      const mapped = mapSpotBalance(bal, allMids);
+      const mapped = mapSpotBalance(bal, allMids, nameMap);
       if (mapped) positions.push(mapped);
     }
 

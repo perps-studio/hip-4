@@ -1,6 +1,6 @@
 {
   "name": "@perps/hip4",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Plug & play SDK for Hyperliquid HIP-4 prediction markets.",
   "type": "module",
   "main": "./dist/index.cjs",

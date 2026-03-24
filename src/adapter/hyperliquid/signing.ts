@@ -420,7 +420,7 @@ function formatDecimal(numStr: string): string {
  * Order wire key order: a, b, p, s, r, t, c?
  * Trigger type key order: isMarket, triggerPx, tpsl
  */
-export function sortOrderAction(action: HLOrderAction): HLOrderAction {
+export function sortOrderAction(action: HLOrderAction & { builder?: { b: string; f: number } }): HLOrderAction {
   const sortedOrders = action.orders.map((o) => {
     // Sort the 't' field if it's a trigger type
     let t = o.t;
@@ -457,13 +457,10 @@ export function sortOrderAction(action: HLOrderAction): HLOrderAction {
   };
 
   // Include builder only if present, with canonical key order and lowercased address
-  const rawBuilder = (action as Record<string, unknown>).builder as
-    | { b: string; f: number }
-    | undefined;
-  if (rawBuilder !== undefined) {
+  if (action.builder !== undefined) {
     sorted.builder = {
-      b: rawBuilder.b.toLowerCase(),
-      f: rawBuilder.f,
+      b: action.builder.b.toLowerCase(),
+      f: action.builder.f,
     };
   }
 
@@ -498,7 +495,7 @@ export function sortCancelAction(action: HLCancelAction): HLCancelAction {
  * vault_marker = 0x00 (no vault) | 0x01 + 20-byte address
  */
 export function createL1ActionHash(params: {
-  action: Record<string, unknown>;
+  action: Record<string, unknown> | HLOrderAction | HLCancelAction;
   nonce: number;
   vaultAddress?: string | null;
 }): Uint8Array {
@@ -560,7 +557,7 @@ const AGENT_TYPES = {
  */
 export async function signL1Action(params: {
   signer: HIP4Signer;
-  action: Record<string, unknown>;
+  action: Record<string, unknown> | HLOrderAction | HLCancelAction;
   nonce: number;
   isTestnet: boolean;
   vaultAddress?: string | null;

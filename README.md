@@ -2,7 +2,7 @@
 
 Zero-dependency TypeScript SDK for Hyperliquid HIP-4 prediction markets.
 
-[Open demo integration →](https://demo.prps.app)
+[Open demo integration ->](https://demo.prps.app)
 
 ---
 
@@ -10,9 +10,9 @@ Zero-dependency TypeScript SDK for Hyperliquid HIP-4 prediction markets.
 
 ### What is this
 
-A typed adapter interface for HIP-4 prediction markets on Hyperliquid. Fetch events, stream real-time orderbook data, place and cancel orders, manage positions — all client-side, zero runtime dependencies.
+A typed adapter interface for HIP-4 prediction markets on Hyperliquid. Fetch events, stream real-time orderbook data, place and cancel orders, manage positions -- all client-side, zero runtime dependencies.
 
-HIP-4 extends Hyperliquid's L1 with binary outcome markets. Each outcome has two sides (Yes/No), traded as probability tokens priced 0–1. This SDK wraps the HL REST + WebSocket API with HIP-4-specific coin naming, signing, and data mapping.
+HIP-4 extends Hyperliquid's L1 with binary outcome markets. Each outcome has two sides (Yes/No), traded as probability tokens priced 0-1. This SDK wraps the HL REST + WebSocket API with HIP-4-specific coin naming, signing, and data mapping.
 
 ### Architecture
 
@@ -30,7 +30,7 @@ graph TD
     E --> C
     F --> C
     G --> C
-    G --> I[signing.ts<br/>msgpack → keccak-256 → EIP-712 Agent]
+    G --> I[signing.ts<br/>msgpack -> keccak-256 -> EIP-712 Agent]
     G --> H
 
     C --> J[HL REST API<br/>/info + /exchange]
@@ -41,11 +41,11 @@ graph TD
     style K fill:#1a1a2e,stroke:#a1a1aa,color:#fafafa
 ```
 
-**Adapter pattern** — all sub-adapters share a single `HIP4Client` that handles URL routing, retry on 5xx, and WebSocket connection management with auto-reconnect (exponential backoff, max 10 attempts).
+**Adapter pattern** -- all sub-adapters share a single `HIP4Client` that handles URL routing, retry on 5xx, and WebSocket connection management with auto-reconnect (exponential backoff, max 10 attempts).
 
-**Signing** — L1 action signing implemented from scratch: MessagePack serialize (key-order-sensitive) → append nonce as BE u64 → keccak-256 hash → EIP-712 sign with `Agent` type (chainId 1337). Zero dependencies — no ethers, no viem, no @nktkas.
+**Signing** -- L1 action signing implemented from scratch: MessagePack serialize (key-order-sensitive) -> append nonce as BE u64 -> keccak-256 hash -> EIP-712 sign with `Agent` type (chainId 1337). Zero dependencies -- no ethers, no viem, no @nktkas.
 
-**Coin naming** — `@<outcomeId>` for AMM price lookups, `#<outcomeId><sideIndex>` for tradeable instruments. Asset IDs: `100_000_000 + outcomeId * 10 + sideIndex`.
+**Coin naming** -- `@<outcomeId>` for AMM price lookups, `#<outcomeId><sideIndex>` for tradeable instruments. Asset IDs: `100_000_000 + outcomeId * 10 + sideIndex`.
 
 ### API
 
@@ -140,15 +140,15 @@ Coverage includes: keccak-256 against known vectors, msgpack encoding, action so
 
 ### Full API Reference
 
-#### `adapter.events` — PredictionEventAdapter
+#### `adapter.events` -- PredictionEventAdapter
 
 | Method | Description |
 |--------|-------------|
 | `fetchEvents(params?)` | List events. Filters: `category`, `active`, `limit`, `offset`, `query` |
 | `fetchEvent(eventId)` | Single event by ID (`q<n>` for questions, `o<n>` for standalone) |
-| `fetchCategories()` | Returns `[{ id, name, slug }]` — "custom" and "recurring" |
+| `fetchCategories()` | Returns `[{ id, name, slug }]` -- "custom" and "recurring" |
 
-#### `adapter.marketData` — PredictionMarketDataAdapter
+#### `adapter.marketData` -- PredictionMarketDataAdapter
 
 | Method | Description |
 |--------|-------------|
@@ -160,7 +160,7 @@ Coverage includes: keccak-256 against known vectors, msgpack encoding, action so
 | `subscribePrice(marketId, cb)` | WebSocket allMids channel |
 | `subscribeTrades(marketId, cb)` | WebSocket trades channel |
 
-#### `adapter.account` — PredictionAccountAdapter
+#### `adapter.account` -- PredictionAccountAdapter
 
 | Method | Description |
 |--------|-------------|
@@ -170,7 +170,7 @@ Coverage includes: keccak-256 against known vectors, msgpack encoding, action so
 | `fetchOpenOrders(address)` | Resting orders (frontendOpenOrders) |
 | `subscribePositions(address, cb)` | Polling at 10s (no WS channel for spot) |
 
-#### `adapter.trading` — PredictionTradingAdapter
+#### `adapter.trading` -- PredictionTradingAdapter
 
 | Method | Description |
 |--------|-------------|
@@ -181,7 +181,7 @@ Order params: `{ marketId, outcome, side, type, price?, amount, timeInForce? }`
 
 Market orders use `FrontendMarket` TIF with ceiling/floor pricing (`0.99999`/`0.00001`) for best-execution.
 
-#### `adapter.auth` — PredictionAuthAdapter
+#### `adapter.auth` -- PredictionAuthAdapter
 
 | Method | Description |
 |--------|-------------|
@@ -202,19 +202,19 @@ Market orders use `FrontendMarket` TIF with ceiling/floor pricing (`0.99999`/`0.
 |------|---------|
 | `useEvents(params?)` | `{ events, isLoading, error }` |
 | `useEventDetail(eventId)` | `{ event, isLoading, error }` |
-| `usePredictionBook(marketId)` | `{ data: OrderBook, isLoading, error }` — WebSocket streaming |
-| `usePredictionPrice(marketId)` | `{ data: Price, isLoading, error }` — WebSocket streaming |
-| `usePredictionPositions(address)` | `{ data: Position[], isLoading, error }` — 10s polling |
+| `usePredictionBook(marketId)` | `{ data: OrderBook, isLoading, error }` -- WebSocket streaming |
+| `usePredictionPrice(marketId)` | `{ data: Price, isLoading, error }` -- WebSocket streaming |
+| `usePredictionPositions(address)` | `{ data: Position[], isLoading, error }` -- 10s polling |
 
 ### Signing Internals
 
 The signing pipeline (`src/adapter/hyperliquid/signing.ts`):
 
-1. **Sort** action keys in canonical order (type → orders → grouping for orders; type → cancels for cancels). Price/size strings have trailing zeros stripped
+1. **Sort** action keys in canonical order (type -> orders -> grouping for orders; type -> cancels for cancels). Price/size strings have trailing zeros stripped
 2. **MessagePack encode** the sorted action object
 3. **Append** nonce as big-endian uint64 (8 bytes)
 4. **Append** vault marker (0x00 for no vault, 0x01 + 20-byte address for vault)
-5. **Keccak-256** hash the concatenated bytes → `connectionId`
+5. **Keccak-256** hash the concatenated bytes -> `connectionId`
 6. **EIP-712 sign** with domain `{ name: "Exchange", version: "1", chainId: 1337 }`, primaryType `Agent`, message `{ source: "a"|"b", connectionId }`
 
 The msgpack encoder and keccak-256 are implemented inline (~350 lines). Hash output is cross-validated against `@nktkas/hyperliquid` in tests.

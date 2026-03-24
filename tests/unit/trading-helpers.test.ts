@@ -127,11 +127,11 @@ describe("formatPrice (via limit orders)", () => {
     expect(await getOrderPrice("1234")).toBe("1234");
   });
 
-  it("formats 45.67 as '45.7' (10–999 range, 1 decimal)", async () => {
+  it("formats 45.67 as '45.7' (10-999 range, 1 decimal)", async () => {
     expect(await getOrderPrice("45.67")).toBe("45.7");
   });
 
-  it("formats 5.123 as '5.12' (1–9 range, 2 decimals)", async () => {
+  it("formats 5.123 as '5.12' (1-9 range, 2 decimals)", async () => {
     expect(await getOrderPrice("5.123")).toBe("5.12");
   });
 
