@@ -1,0 +1,18 @@
+export {
+  PredictionsAdapterProvider,
+  usePredictionsAdapter,
+} from "./context";
+export { createHIP4Adapter } from "./factory";
+export type { CreateHIP4AdapterConfig } from "./factory";
+export type {
+  PredictionsAdapter,
+  PredictionEventAdapter,
+  PredictionMarketDataAdapter,
+  PredictionAccountAdapter,
+  PredictionTradingAdapter,
+  PredictionAuthAdapter,
+  Unsubscribe,
+} from "./types";
+export { getAgentApprovalTypedData, submitAgentApproval } from "./hyperliquid/agent-wallet";
+export { splitHexSignature, normalizeSignature } from "./hyperliquid/types";
+export type { HIP4Signer, HLSignature } from "./hyperliquid/types";
