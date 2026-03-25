@@ -70,7 +70,7 @@ A comprehensive glossary of every term, concept, and convention used in this SDK
 
 ## SDK Architecture Terms
 
-**Adapter** - The top-level interface (`PredictionsAdapter`) that defines the complete API surface for a prediction market backend. Composed of five sub-adapters: `events`, `marketData`, `account`, `trading`, and `auth`. Has `initialize()` and `destroy()` lifecycle methods. (`src/adapter/types.ts`: `PredictionsAdapter`)
+**Adapter** - The top-level interface (`PredictionsAdapter`) that defines the complete API surface for a prediction market backend. Composed of five sub-adapters (`events`, `marketData`, `account`, `trading`, `auth`) plus the `wallet` adapter for fund management. Has `initialize()` and `destroy()` lifecycle methods. (`src/adapter/types.ts`: `PredictionsAdapter`)
 
 **createHIP4Adapter** - The factory function that instantiates a `HyperliquidHip4Adapter` with optional config (testnet, custom URLs, logger). This is the main entry point for consumers. (`src/adapter/factory.ts`: `createHIP4Adapter`)
 
@@ -82,11 +82,15 @@ A comprehensive glossary of every term, concept, and convention used in this SDK
 
 **HIP4Signer interface** - The contract that consumers must implement to enable order signing. Requires `getAddress()` (returns wallet address) and `signTypedData(domain, types, value)` (produces EIP-712 signatures). Accepts both native `HLSignature` objects and hex strings as return values. Compatible with ethers Wallet, viem WalletClient, or any EIP-712-capable signer. (`src/adapter/hyperliquid/types.ts`: `HIP4Signer`)
 
-**HyperliquidHip4Adapter** - The concrete implementation of `PredictionsAdapter` for Hyperliquid HIP-4. Composes `HIP4EventAdapter`, `HIP4MarketDataAdapter`, `HIP4AccountAdapter`, `HIP4TradingAdapter`, and `HIP4Auth` around a shared `HIP4Client` instance. (`src/adapter/hyperliquid/index.ts`: `HyperliquidHip4Adapter`)
+**HIP4WalletAdapter** - The fund management sub-adapter. Handles USDH spot buy/sell (L1 agent signing), Perp↔Spot transfers, withdrawals, and USD sends (EIP-712 user signing). Uses two signers: the agent key from `HIP4Auth` for spot orders, and a user wallet set via `setSigner()` for EIP-712 operations. (`src/adapter/hyperliquid/wallet.ts`: `HIP4WalletAdapter`)
+
+**HyperliquidHip4Adapter** - The concrete implementation of `PredictionsAdapter` for Hyperliquid HIP-4. Composes `HIP4EventAdapter`, `HIP4MarketDataAdapter`, `HIP4AccountAdapter`, `HIP4TradingAdapter`, `HIP4Auth`, and `HIP4WalletAdapter` around a shared `HIP4Client` instance. (`src/adapter/hyperliquid/index.ts`: `HyperliquidHip4Adapter`)
 
 **PredictionsAdapterProvider** - A React context provider that makes a `PredictionsAdapter` instance available to all descendant components via `usePredictionsAdapter()`. Calls `adapter.initialize()` on mount and `adapter.destroy()` on unmount. (`src/adapter/context.tsx`: `PredictionsAdapterProvider`)
 
-**Sub-adapter** - One of five domain-specific interfaces that compose the full adapter: `PredictionEventAdapter` (event/category queries), `PredictionMarketDataAdapter` (order book, prices, trades, subscriptions), `PredictionAccountAdapter` (positions, activity, position subscriptions), `PredictionTradingAdapter` (place/cancel orders), and `PredictionAuthAdapter` (wallet auth lifecycle). (`src/adapter/types.ts`)
+**SideNameResolver** - A function type `(outcomeId: number) => [string, string] | null` that resolves outcome IDs to their sideSpec names (e.g. `[\"Yes\", \"No\"]` or `[\"Hypurr\", \"Usain Bolt\"]`). Populated from `outcomeMeta` on first fetch and cached permanently. Shared across events, market-data, and account adapters. (`src/adapter/hyperliquid/events.ts`: `SideNameResolver`)
+
+**Sub-adapter** - One of six domain-specific components that compose the full adapter: `PredictionEventAdapter` (event/category queries), `PredictionMarketDataAdapter` (order book, prices, trades, subscriptions), `PredictionAccountAdapter` (positions, activity, position subscriptions), `PredictionTradingAdapter` (place/cancel orders), `PredictionAuthAdapter` (wallet auth lifecycle), and `HIP4WalletAdapter` (fund management). (`src/adapter/types.ts`, `src/adapter/hyperliquid/wallet.ts`)
 
 **Unsubscribe** - A function type `() => void` returned by all subscription methods. Calling it removes the callback and, if no subscriptions remain, closes the underlying WebSocket connection. (`src/adapter/types.ts`: `Unsubscribe`)
 
@@ -96,33 +100,39 @@ A comprehensive glossary of every term, concept, and convention used in this SDK
 
 ## EIP-712 Signing
 
-**buildEIP712Domain** - Constructs the EIP-712 domain separator for Hyperliquid. Fields: `name: "Exchange"`, `version: "1"`, `chainId: 421614` (testnet) or `42161` (mainnet Arbitrum), `verifyingContract: 0x000...000`. (`src/adapter/hyperliquid/trading.ts`: `buildEIP712Domain`)
+The SDK implements two EIP-712 signing flows. Both produce `HLSignature` objects (`{r, s, v}`) accepted by the Hyperliquid exchange.
 
-**CANCEL_TYPES** - The EIP-712 type definition for cancel actions. Structure: `"HyperliquidTransaction:Exchange"` with fields `action` (string, JSON-serialized cancel action) and `nonce` (uint64). Identical structure to ORDER_TYPES. (`src/adapter/hyperliquid/trading.ts`: `CANCEL_TYPES`)
+### L1 Agent Signing (orders, cancels, USDH spot trades)
 
-**Domain** - The EIP-712 domain separator object passed to `signTypedData`. Identifies the signing context (exchange name, version, chain, contract address). See `buildEIP712Domain`. (`src/adapter/hyperliquid/trading.ts`: `buildEIP712Domain`)
+**AGENT_DOMAIN** - The EIP-712 domain for L1 agent signing. Fields: `name: "Exchange"`, `version: "1"`, `chainId: 1337`, `verifyingContract: 0x000...000`. (`src/adapter/hyperliquid/signing.ts`: `AGENT_DOMAIN`)
 
-**HLSignature** - The signature format Hyperliquid expects: an object with `r` (hex string), `s` (hex string), and `v` (number). All exchange requests include this. (`src/adapter/hyperliquid/types.ts`: `HLSignature`)
+**AGENT_TYPES** - The EIP-712 type definition for the Agent message. Structure: `Agent` with fields `source` (string, `"a"` for mainnet, `"b"` for testnet) and `connectionId` (bytes32, the keccak-256 hash of the msgpack-encoded action). (`src/adapter/hyperliquid/signing.ts`: `AGENT_TYPES`)
+
+**signL1Action** - Signs an exchange action using L1 agent signing: msgpack-encode, append nonce + vault marker, keccak-256 hash, then EIP-712 sign with the Agent type on the phantom domain. Used for orders, cancels, and USDH spot trades. (`src/adapter/hyperliquid/signing.ts`: `signL1Action`)
+
+### User-Signed EIP-712 (transfers, withdrawals, sends)
+
+**signUserSignedAction** - Signs an exchange action using EIP-712 on the `HyperliquidSignTransaction` domain. The action must include `signatureChainId` (always `0x66eee` / 421614). The message is filtered to only include keys defined in the EIP-712 types for wallet compatibility. Invalid `signatureChainId` values are rejected. (`src/adapter/hyperliquid/signing.ts`: `signUserSignedAction`)
+
+**WITHDRAW_TYPES** - EIP-712 types for the `withdraw3` action. Primary type `HyperliquidTransaction:Withdraw` with fields: `hyperliquidChain`, `destination`, `amount`, `time`. (`src/adapter/hyperliquid/signing.ts`: `WITHDRAW_TYPES`)
+
+**USD_CLASS_TRANSFER_TYPES** - EIP-712 types for the `usdClassTransfer` action. Primary type `HyperliquidTransaction:UsdClassTransfer` with fields: `hyperliquidChain`, `amount`, `toPerp`, `nonce`. (`src/adapter/hyperliquid/signing.ts`: `USD_CLASS_TRANSFER_TYPES`)
+
+**USD_SEND_TYPES** - EIP-712 types for the `usdSend` action. Primary type `HyperliquidTransaction:UsdSend` with fields: `hyperliquidChain`, `destination`, `amount`, `time`. (`src/adapter/hyperliquid/signing.ts`: `USD_SEND_TYPES`)
+
+### Shared
+
+**HLSignature** - The signature format Hyperliquid expects: an object with `r` (hex string), `s` (hex string), and `v` (number, 27 or 28). All exchange requests include this. (`src/adapter/hyperliquid/types.ts`: `HLSignature`)
 
 **normalizeSignature** - Accepts either an `HLSignature` object or a hex string and returns a normalized `HLSignature`. If a string is passed, delegates to `splitHexSignature`. Used after every `signTypedData` call to handle both signer output formats. (`src/adapter/hyperliquid/types.ts`: `normalizeSignature`)
 
-**ORDER_TYPES** - The EIP-712 type definition for order actions. Structure: `"HyperliquidTransaction:Exchange"` with fields `action` (string, JSON-serialized order action) and `nonce` (uint64). (`src/adapter/hyperliquid/trading.ts`: `ORDER_TYPES`)
-
-**Phantom agent signing** - A Hyperliquid signing method that uses MessagePack encoding and keccak256 hashing for agent wallet authorization (ApproveAgent). This SDK does not implement phantom agent signing; it uses standard EIP-712 `signTypedData` for all actions. Mentioned here for completeness since the HL ecosystem documentation references it.
-
-**primaryType** - In EIP-712, the top-level type being signed. For Hyperliquid, this is always `"HyperliquidTransaction:Exchange"`. The SDK passes this implicitly through the `types` object key. (`src/adapter/hyperliquid/trading.ts`: `ORDER_TYPES`, `CANCEL_TYPES`)
-
 **splitHexSignature** - Converts a viem-style hex signature string (`0x` + 32 bytes r + 32 bytes s + 1 byte v, total 65 bytes) into the `{r, s, v}` format Hyperliquid expects. (`src/adapter/hyperliquid/types.ts`: `splitHexSignature`)
-
-**Types** - The EIP-712 type definitions object passed to `signTypedData`. Maps type names to arrays of `{name, type}` field descriptors. In this SDK, always keyed by `"HyperliquidTransaction:Exchange"`. (`src/adapter/hyperliquid/trading.ts`: `ORDER_TYPES`, `CANCEL_TYPES`)
-
-**Value** - The EIP-712 message value object passed to `signTypedData`. For orders and cancels, contains `action` (JSON-stringified action object) and `nonce` (timestamp in ms). (`src/adapter/hyperliquid/trading.ts`: `buildOrderValue`, `buildCancelValue`)
 
 ---
 
 ## Trading Terms
 
-**DEFAULT_MARKET_SLIPPAGE** - The default slippage tolerance for market orders: `0.08` (8%). Applied to the best book price (or midpoint if book is empty) to compute the limit price sent to the exchange. Buy orders multiply by `1 + slippage`, sell orders by `1 - slippage`. Result is clamped to the 0.0001-0.9999 prediction market range. (`src/adapter/hyperliquid/trading.ts`: `DEFAULT_MARKET_SLIPPAGE`)
+**Market order pricing** - Market orders use `FrontendMarket` TIF with extreme prices (`0.99999` for buys, `0.00001` for sells) to ensure fill. The exchange handles best-execution via the FrontendMarket mechanism. (`src/adapter/hyperliquid/trading.ts`: `placeOrder`)
 
 **FOK (Fill or Kill)** - A time-in-force type that in theory requires the entire order to fill or be cancelled. Hyperliquid does not support true FOK, so the SDK maps it to IOC (Immediate or Cancel), which may result in partial fills. Consumers expecting all-or-nothing semantics should validate fill size in the response. (`src/adapter/hyperliquid/trading.ts`: `mapTif`)
 
@@ -136,13 +146,13 @@ A comprehensive glossary of every term, concept, and convention used in this SDK
 
 **HLOrderAction** - The wire format for order placement requests. Contains `type: "order"`, `grouping: "na"` (no grouping), and an `orders` array of `HLOrderWire` objects. (`src/adapter/hyperliquid/types.ts`: `HLOrderAction`)
 
-**HLOrderWire** - The individual order in wire format. Fields: `a` (asset index / ID), `b` (boolean, true = buy), `p` (price string), `s` (size string), `r` (reduce-only boolean), `t` (order type with TIF). (`src/adapter/hyperliquid/types.ts`: `HLOrderWire`)
+**HLOrderWire** - The individual order in wire format. Fields: `a` (asset index / ID), `b` (boolean, true = buy), `p` (price string), `s` (size string), `r` (reduce-only boolean), `t` (order type with TIF), optional `c` (client order ID). (`src/adapter/hyperliquid/types.ts`: `HLOrderWire`)
 
 **IOC (Immediate or Cancel)** - A time-in-force type where the order fills immediately against existing liquidity and any unfilled remainder is cancelled. Maps to `{ limit: { tif: "Ioc" } }`. Also the target for FOK and FAK mappings. (`src/adapter/hyperliquid/trading.ts`: `mapTif`)
 
 **Limit order** - An order placed at a specific price. The provided price is formatted via `formatPrice` and sent with the specified TIF (default GTC). (`src/adapter/hyperliquid/trading.ts`: `placeOrder`)
 
-**Market order** - An order that executes immediately at the best available price plus slippage. The SDK fetches the L2 book (or falls back to allMids), applies `DEFAULT_MARKET_SLIPPAGE`, clamps to the 0.0001-0.9999 range, and sends the order with TIF `FrontendMarket`. (`src/adapter/hyperliquid/trading.ts`: `placeOrder`)
+**Market order** - An order that executes immediately at the best available price. The SDK uses `FrontendMarket` TIF with extreme prices (`0.99999` for buys, `0.00001` for sells), delegating best-execution to the exchange. (`src/adapter/hyperliquid/trading.ts`: `placeOrder`)
 
 **Nonce** - A monotonically increasing number included in every exchange request to prevent replay attacks. The SDK uses `Date.now()` (current timestamp in milliseconds) as the nonce. (`src/adapter/hyperliquid/trading.ts`: `placeOrder`, `cancelOrder`)
 
@@ -154,9 +164,7 @@ A comprehensive glossary of every term, concept, and convention used in this SDK
 
 **resolveAssetId** - Converts a `marketId` + `outcome` string pair into a numeric HL asset ID. Resolution order: (1) explicit `#<id><side>` format, (2) trailing digit regex inference, (3) fallback to side 0. (`src/adapter/hyperliquid/trading.ts`: `resolveAssetId`)
 
-**Slippage** - The maximum acceptable price deviation from the current market price for market orders. Set to 8% by default. Applied directionally: added for buys, subtracted for sells. (`src/adapter/hyperliquid/trading.ts`: `DEFAULT_MARKET_SLIPPAGE`)
-
-**Time-in-Force (TIF)** - Controls how long an order remains active. SDK supports: `GTC` (Good Til Cancelled), `GTD` (Good Til Date), `FOK` (Fill or Kill, mapped to IOC), `FAK` (Fill and Kill, mapped to IOC). Market orders use `FrontendMarket`. (`src/types/trading.ts`: `PredictionOrderParams.timeInForce`; `src/adapter/hyperliquid/trading.ts`: `mapTif`)
+**Time-in-Force (TIF)** - Controls how long an order remains active. SDK supports: `GTC` (Good Til Cancelled), `GTD` (Good Til Date), `FOK` (Fill or Kill, mapped to IOC), `FAK` (Fill and Kill, mapped to IOC). Market orders use `FrontendMarket`. USDH spot orders use `Ioc`. (`src/types/trading.ts`: `PredictionOrderParams.timeInForce`; `src/adapter/hyperliquid/trading.ts`: `mapTif`)
 
 ---
 
@@ -186,7 +194,7 @@ A comprehensive glossary of every term, concept, and convention used in this SDK
 
 **PredictionOutcome** - One tradeable side of a prediction market. Fields: `name` (e.g., "Yes", "No"), `tokenId` (side coin like `#5160`), `price` (current mid price). Mapped from `HLSideSpec`. (`src/types/event.ts`: `PredictionOutcome`)
 
-**PredictionPosition** - A user's position in a prediction market. Fields: `marketId`, `eventTitle`, `marketQuestion`, `outcome`, `shares`, `avgCost` (entry notional / total shares), `currentPrice`, `unrealizedPnl`, `potentialPayout`, `eventStatus`. Derived from spot balances filtered to outcome coins. (`src/types/account.ts`: `PredictionPosition`)
+**PredictionPosition** - A user's position in a prediction market. Fields: `marketId`, `eventTitle`, `marketQuestion`, `outcome` (coin ID like `#90`), `outcomeName` (resolved sideSpec name like "Hypurr"), `shares`, `avgCost` (entry notional / total shares), `currentPrice`, `unrealizedPnl`, `potentialPayout`, `eventStatus`. Derived from spot balances filtered to outcome coins. (`src/types/account.ts`: `PredictionPosition`)
 
 **PredictionPrice** - Real-time price data for a market's outcomes. Fields: `marketId`, `outcomes` (array of `{ name, price, midpoint }`), `timestamp`. Both sides are included (Side 0 and Side 1). (`src/types/market.ts`: `PredictionPrice`)
 
@@ -210,7 +218,7 @@ A comprehensive glossary of every term, concept, and convention used in this SDK
 
 **Ref counting** - The WebSocket pool tracks the number of active subscriptions via `refCount`. When a subscription is removed and `refCount` drops to zero, the WebSocket connection is closed. This prevents idle connections from consuming resources. (`src/adapter/hyperliquid/market-data.ts`: `WsPoolEntry.refCount`)
 
-**Subscription routing** - WebSocket messages are routed to callbacks based on a subscription key (`channel:coin` or just `channel` for wildcard). Each key maps to a `Set` of callbacks. The `allMids` channel uses `*` as a wildcard coin to receive all mid price updates. (`src/adapter/hyperliquid/market-data.ts`: `subscribeWs`, `ensureWs` onmessage handler)
+**Subscription routing** - WebSocket messages are routed to callbacks based on a subscription key. Per-coin subscriptions use `channel:coin` keys (e.g. `l2Book:#100`); channel-only subscriptions use just the channel name (e.g. `allMids`). The `onmessage` handler extracts `data.coin` from the message payload (or `data[0].coin` for array payloads like trades) to match per-coin subscribers, then falls through to channel-only subscribers. (`src/adapter/hyperliquid/market-data.ts`: `subscribeWs`, `ensureWs` onmessage handler)
 
 **Throttling (hook updates)** - The React hooks (`usePredictionPrice`, `usePredictionBook`, `usePredictionPositions`) throttle state updates to a minimum interval of `THROTTLE_MS = 200` ms. Rapid updates within this window are coalesced via `setTimeout`, ensuring the last value is always delivered. (`src/hooks/use-prediction-price.ts`, `src/hooks/use-prediction-book.ts`, `src/hooks/use-prediction-positions.ts`)
 
@@ -232,13 +240,33 @@ A comprehensive glossary of every term, concept, and convention used in this SDK
 
 ---
 
+## Wallet & USDH Terms
+
+**USDH** - The collateral token for HIP-4 prediction markets on Hyperliquid. Traded as a spot token (not a HIP-4 outcome) on the USDH/USDC pair. Spot market index 1338, asset ID 11338 (`10000 + 1338`), spot pair name `@1338`. (`src/adapter/hyperliquid/wallet.ts`: `USDH_SPOT_INDEX`, `USDH_ASSET_ID`, `USDH_SPOT_PAIR`)
+
+**Deposit flow** - The multi-step process for funding HIP-4 prediction trading: (1) bridge USDC to HL perps (external), (2) `transferToSpot` (user-signed `usdClassTransfer`), (3) `buyUsdh` (L1 agent-signed spot order). Steps 2 and 3 are handled by `HIP4WalletAdapter`.
+
+**Withdraw flow** - The multi-step process for withdrawing from HIP-4: (1) `sellUsdh` (L1 agent-signed spot order), (2) `transferToPerps` (user-signed `usdClassTransfer`), (3) `withdraw` (user-signed `withdraw3`). All steps handled by `HIP4WalletAdapter`.
+
+**Oracle price** - The mark/reference price for a spot asset, fetched from `spotMetaAndAssetCtxs`. Hyperliquid rejects orders priced more than ~20% from the oracle. The wallet adapter prices USDH spot orders at oracle ± 10% to stay within this limit. (`src/adapter/hyperliquid/client.ts`: `fetchSpotAssetCtx`)
+
+**Spot asset ID** - The numeric asset ID for spot token orders: `10000 + spotMeta.universe[].index`. Different from HIP-4 outcome asset IDs (`100_000_000 + outcomeId * 10 + sideIndex`). USDH uses asset ID 11338. (`src/adapter/hyperliquid/wallet.ts`: `USDH_ASSET_ID`)
+
+**WalletActionResult** - The result type for all wallet operations. Fields: `success` (boolean), optional `error` (string), optional `filledSz` and `avgPx` (spot orders only). (`src/adapter/hyperliquid/wallet.ts`: `WalletActionResult`)
+
+---
+
 ## Coin Name Conventions
 
-| Format                    | Example          | Meaning                                 | Used For                    |
-| ------------------------- | ---------------- | --------------------------------------- | --------------------------- |
-| `@<outcomeId>`            | `@1338`          | Outcome-level coin (AMM instrument)     | Price lookups via allMids   |
-| `#<outcomeId><sideIndex>` | `#5160`, `#5161` | Per-side probability coin               | Order books, trading, fills |
-| `B` / `A`                 | -                | Buy / Ask (sell) side in HL wire format | Raw trade/order data        |
-| `"buy"` / `"sell"`        | -                | Normalized side in SDK types            | All public SDK interfaces   |
+| Format                    | Example          | Meaning                                 | Used For                         |
+| ------------------------- | ---------------- | --------------------------------------- | -------------------------------- |
+| `@<outcomeId>`            | `@1338`          | Outcome-level coin / spot pair name     | Price lookups, spot pair ID      |
+| `#<outcomeId><sideIndex>` | `#5160`, `#5161` | Per-side probability coin               | Order books, trading, fills      |
+| `B` / `A`                 | -                | Buy / Ask (sell) side in HL wire format | Raw trade/order data             |
+| `"buy"` / `"sell"`        | -                | Normalized side in SDK types            | All public SDK interfaces        |
+
+**Asset ID formulas:**
+- HIP-4 outcomes: `100_000_000 + outcomeId * 10 + sideIndex`
+- Spot tokens: `10_000 + spotMeta.universe[].index`
 
 Helper functions: `outcomeCoin`, `sideCoin`, `parseSideCoin`, `parseOutcomeCoin`, `coinOutcomeId`, `isOutcomeCoin` - all in `src/adapter/hyperliquid/client.ts`.

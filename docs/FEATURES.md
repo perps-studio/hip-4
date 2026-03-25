@@ -28,7 +28,7 @@
 | Field                    | Value                                                                                                                                                                                                                                                                                                     |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Package name**         | `@perps/hip4`                                                                                                                                                                                                                                                                                             |
-| **Version**              | `1.0.5`                                                                                                                                                                                                                                                                                                   |
+| **Version**              | `1.1.0`                                                                                                                                                                                                                                                                                                   |
 | **License**              | BSL 1.1 (Business Source License) - converts to MIT on 2028-03-21. Production use requires a commercial license from Dennis Furrer (dennis@perps.studio). Evaluation, testing, non-production development, academic use, and personal non-commercial projects are permitted without a separate agreement. |
 | **Author**               | Dennis Furrer                                                                                                                                                                                                                                                                                             |
 | **Runtime dependencies** | Zero. The package has no `dependencies` at all.                                                                                                                                                                                                                                                           |
@@ -51,14 +51,15 @@
 createHIP4Adapter(config)
   └─ HyperliquidHip4Adapter          (implements PredictionsAdapter)
        ├─ HIP4Client                  (HTTP + WS transport)
-       ├─ HIP4EventAdapter            (events sub-adapter)
-       ├─ HIP4MarketDataAdapter       (market data sub-adapter)
-       ├─ HIP4AccountAdapter          (account sub-adapter)
-       ├─ HIP4TradingAdapter          (trading sub-adapter, receives auth)
-       └─ HIP4Auth                    (auth sub-adapter)
+       ├─ HIP4EventAdapter            (events, side name resolver)
+       ├─ HIP4MarketDataAdapter       (market data, WS subscriptions)
+       ├─ HIP4AccountAdapter          (positions, activity)
+       ├─ HIP4TradingAdapter          (orders, cancels — L1 agent signing)
+       ├─ HIP4Auth                    (auth lifecycle)
+       └─ HIP4WalletAdapter           (USDH buy/sell, transfers, withdrawals)
 ```
 
-The factory creates a `HyperliquidHip4Adapter` which composes five sub-adapters around a shared `HIP4Client`. The client handles all HTTP transport (info + exchange endpoints) and exposes the WebSocket URL. Each sub-adapter maps raw Hyperliquid responses to the SDK's normalized types.
+The factory creates a `HyperliquidHip4Adapter` which composes six sub-adapters around a shared `HIP4Client`. The client handles all HTTP transport (info + exchange endpoints) and exposes the WebSocket URL. Each sub-adapter maps raw Hyperliquid responses to the SDK's normalized types. Side names from `outcomeMeta.sideSpecs` are cached permanently and shared across events, market-data, and account adapters via a resolver function.
 
 ### Exports from `src/adapter/index.ts`
 
@@ -79,6 +80,13 @@ The factory creates a `HyperliquidHip4Adapter` which composes five sub-adapters 
 | `normalizeSignature`          | Utility function |
 | `HIP4Signer`                  | Type (interface) |
 | `HLSignature`                 | Type (interface) |
+| `HIP4WalletAdapter`          | Class            |
+| `USDH_ASSET_ID`              | Constant         |
+| `USDH_SPOT_PAIR`             | Constant         |
+| `UsdClassTransferParams`     | Type             |
+| `WithdrawParams`             | Type             |
+| `UsdSendParams`              | Type             |
+| `WalletActionResult`         | Type             |
 
 ---
 
