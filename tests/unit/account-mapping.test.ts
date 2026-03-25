@@ -61,11 +61,9 @@ describe("fetchPositions", () => {
     expect(positions).toHaveLength(3);
 
     const coins = positions.map((p) => p.outcome);
-    // #17580 → parseSideCoin → "Side 0"
-    expect(coins).toContain("Side 0");
-    // #51601 → parseSideCoin → "Side 1"
-    expect(coins).toContain("Side 1");
-    // @1400 → parseSideCoin returns null → coin is used directly
+    // outcome is now the raw coin identifier
+    expect(coins).toContain("#17580");
+    expect(coins).toContain("#51601");
     expect(coins).toContain("@1400");
   });
 

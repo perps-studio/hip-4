@@ -3,7 +3,10 @@ export interface PredictionPosition {
   marketId: string;
   eventTitle: string;
   marketQuestion: string;
+  /** Coin identifier (e.g. "#90" or "#91"). Use for lookups. */
   outcome: string;
+  /** Human-readable side name from sideSpecs (e.g. "Hypurr", "Yes"). Use for display. */
+  outcomeName: string;
   shares: string;
   avgCost: string;
   currentPrice: string;

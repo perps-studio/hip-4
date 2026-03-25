@@ -13,11 +13,13 @@ import type { PredictionEvent } from "../../types/event";
 import type { PredictionAccountAdapter, Unsubscribe } from "../types";
 import type { HIP4Client } from "./client";
 import { coinOutcomeId, isOutcomeCoin, parseSideCoin } from "./client";
+import type { SideNameResolver } from "./events";
 import type { HLFill } from "./types";
 
 /** Minimal interface for fetching event data (avoids importing the full event adapter class). */
 interface EventDataSource {
   fetchEvents(params?: { limit?: number }): Promise<PredictionEvent[]>;
+  ensureSideNames?(): Promise<void>;
 }
 
 const POLL_INTERVAL_MS = 10_000;
@@ -32,6 +34,7 @@ function mapSpotBalance(
   bal: SpotBalance,
   allMids: Record<string, string>,
   nameMap: Map<string, { eventTitle: string; marketQuestion: string }>,
+  resolveSideNames?: SideNameResolver,
 ): PredictionPosition | null {
   const coin = bal.coin;
   if (!isOutcomeCoin(coin)) return null;
@@ -42,8 +45,18 @@ function mapSpotBalance(
   const outcomeId = coinOutcomeId(coin);
   const marketId = outcomeId !== null ? String(outcomeId) : coin;
 
+  // outcome stays as the coin identifier (e.g. "#90") for lookups
+  const outcome = coin;
+
+  // Resolve human-readable name from sideSpecs
   const parsed = parseSideCoin(coin);
-  const outcome = parsed ? `Side ${parsed.sideIndex}` : coin;
+  let outcomeName: string;
+  if (parsed && resolveSideNames) {
+    const names = resolveSideNames(parsed.outcomeId);
+    outcomeName = names ? names[parsed.sideIndex] : `Side ${parsed.sideIndex}`;
+  } else {
+    outcomeName = parsed ? `Side ${parsed.sideIndex}` : coin;
+  }
 
   const entryNtl = parseFloat(bal.entryNtl);
   const avgCost = total !== 0 ? entryNtl / total : 0;
@@ -59,6 +72,7 @@ function mapSpotBalance(
     eventTitle: names?.eventTitle ?? "",
     marketQuestion: names?.marketQuestion ?? "",
     outcome,
+    outcomeName,
     shares: total.toFixed(6),
     avgCost: avgCost.toFixed(6),
     currentPrice: mid ?? "0",
@@ -87,12 +101,22 @@ function mapFill(raw: HLFill): PredictionActivity | null {
 }
 
 export class HIP4AccountAdapter implements PredictionAccountAdapter {
+  private readonly resolveSideNames?: SideNameResolver;
+
   constructor(
     private readonly client: HIP4Client,
     private readonly events?: EventDataSource,
-  ) {}
+    resolveSideNames?: SideNameResolver,
+  ) {
+    this.resolveSideNames = resolveSideNames;
+  }
 
   async fetchPositions(address: string): Promise<PredictionPosition[]> {
+    // Ensure side names are loaded before resolving positions
+    if (this.events?.ensureSideNames) {
+      await this.events.ensureSideNames();
+    }
+
     const [state, allMids, eventList] = await Promise.all([
       this.client.fetchSpotClearinghouseState(address),
       this.client.fetchAllMids(),
@@ -113,7 +137,7 @@ export class HIP4AccountAdapter implements PredictionAccountAdapter {
       if (!isOutcomeCoin(bal.coin)) continue;
       if (parseFloat(bal.total) === 0) continue;
 
-      const mapped = mapSpotBalance(bal, allMids, nameMap);
+      const mapped = mapSpotBalance(bal, allMids, nameMap, this.resolveSideNames);
       if (mapped) positions.push(mapped);
     }
 

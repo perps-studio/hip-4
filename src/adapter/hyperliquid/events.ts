@@ -150,11 +150,43 @@ function mapStandaloneOutcomeToEvent(outcome: HLOutcome): PredictionEvent {
 // HIP4EventAdapter
 // ---------------------------------------------------------------------------
 
+/**
+ * Resolve side names for an outcome by ID.
+ * Returns [side0Name, side1Name] (e.g. ["Yes", "No"] or ["Hypurr", "Usain Bolt"]).
+ * Returns null if the outcome ID is unknown.
+ */
+export type SideNameResolver = (outcomeId: number) => [string, string] | null;
+
 export class HIP4EventAdapter implements PredictionEventAdapter {
   private cache: { events: PredictionEvent[]; timestamp: number } | null = null;
   private static readonly CACHE_TTL_MS = 30_000;
 
+  /** Side names from outcomeMeta. Populated once, never cleared (sideSpecs don't change). */
+  private sideNames: Map<number, [string, string]> | null = null;
+
   constructor(private readonly client: HIP4Client) {}
+
+  /** Returns a resolver function that looks up side names by outcome ID. */
+  getSideNameResolver(): SideNameResolver {
+    return (outcomeId: number) => this.sideNames?.get(outcomeId) ?? null;
+  }
+
+  /** Ensure sideNames are loaded. Call before using the resolver if data may not be cached yet. */
+  async ensureSideNames(): Promise<void> {
+    if (this.sideNames) return;
+    const meta = await this.client.fetchOutcomeMeta();
+    this.populateSideNames(meta);
+  }
+
+  private populateSideNames(meta: HLOutcomeMeta): void {
+    if (this.sideNames) return;
+    this.sideNames = new Map();
+    for (const o of meta.outcomes) {
+      if (o.sideSpecs.length >= 2) {
+        this.sideNames.set(o.outcome, [o.sideSpecs[0].name, o.sideSpecs[1].name]);
+      }
+    }
+  }
 
   async fetchEvents(
     params: {
@@ -215,6 +247,9 @@ export class HIP4EventAdapter implements PredictionEventAdapter {
       this.client.fetchOutcomeMeta(),
       this.client.fetchAllMids().catch(() => ({}) as Record<string, string>),
     ]);
+
+    this.populateSideNames(meta);
+
     const events = buildEventsFromMeta(meta);
 
     for (const event of events) {

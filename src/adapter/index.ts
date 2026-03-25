@@ -16,3 +16,5 @@ export type {
 export { getAgentApprovalTypedData, submitAgentApproval } from "./hyperliquid/agent-wallet";
 export { splitHexSignature, normalizeSignature } from "./hyperliquid/types";
 export type { HIP4Signer, HLSignature } from "./hyperliquid/types";
+export { HIP4WalletAdapter } from "./hyperliquid/wallet";
+export type { UsdClassTransferParams, WithdrawParams, UsdSendParams, WalletActionResult } from "./hyperliquid/wallet";

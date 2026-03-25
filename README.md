@@ -10,9 +10,9 @@ Zero-dependency TypeScript SDK for Hyperliquid HIP-4 prediction markets.
 
 ### What is this
 
-A typed adapter interface for HIP-4 prediction markets on Hyperliquid. Fetch events, stream real-time orderbook data, place and cancel orders, manage positions -- all client-side, zero runtime dependencies.
+A typed adapter interface for HIP-4 prediction markets on Hyperliquid. Fetch events, stream real-time orderbook data, place and cancel orders, manage positions, transfer funds -- all client-side, zero runtime dependencies.
 
-HIP-4 extends Hyperliquid's L1 with binary outcome markets. Each outcome has two sides (Yes/No), traded as probability tokens priced 0-1. This SDK wraps the HL REST + WebSocket API with HIP-4-specific coin naming, signing, and data mapping.
+HIP-4 extends Hyperliquid's L1 with binary outcome markets. Each outcome has two sides (e.g. Yes/No or named alternatives like "Hypurr"/"Usain Bolt"), traded as probability tokens priced 0-1. This SDK wraps the HL REST + WebSocket API with HIP-4-specific coin naming, signing, and data mapping.
 
 ### Architecture
 
@@ -25,12 +25,15 @@ graph TD
     B --> F[HIP4AccountAdapter<br/>.account]
     B --> G[HIP4TradingAdapter<br/>.trading]
     B --> H[HIP4Auth<br/>.auth]
+    B --> W[HIP4WalletAdapter<br/>.wallet]
 
     D --> C
     E --> C
     F --> C
     G --> C
-    G --> I[signing.ts<br/>msgpack -> keccak-256 -> EIP-712 Agent]
+    W --> C
+    G --> I[signing.ts<br/>L1 agent signing + user-signed EIP-712]
+    W --> I
     G --> H
 
     C --> J[HL REST API<br/>/info + /exchange]
@@ -41,9 +44,14 @@ graph TD
     style K fill:#1a1a2e,stroke:#a1a1aa,color:#fafafa
 ```
 
-**Adapter pattern** -- all sub-adapters share a single `HIP4Client` that handles URL routing, retry on 5xx, and WebSocket connection management with auto-reconnect (exponential backoff, max 10 attempts).
+**Adapter pattern** -- six sub-adapters share a single `HIP4Client` that handles URL routing, retry on 5xx, and WebSocket connection management with auto-reconnect (exponential backoff, max 10 attempts).
 
-**Signing** -- L1 action signing implemented from scratch: MessagePack serialize (key-order-sensitive) -> append nonce as BE u64 -> keccak-256 hash -> EIP-712 sign with `Agent` type (chainId 1337). Zero dependencies -- no ethers, no viem, no @nktkas.
+**Two signing methods** -- the SDK implements both Hyperliquid signing flows from scratch with zero dependencies:
+
+- **L1 agent signing** -- for orders and cancels. MessagePack serialize (key-order-sensitive) -> append nonce as BE u64 -> keccak-256 hash -> EIP-712 sign with `Agent` type (chainId 1337). Used by the trading adapter.
+- **User-signed EIP-712** -- for wallet operations (withdraw, transfer, send). Standard EIP-712 on the `HyperliquidSignTransaction` domain with `signatureChainId: 0x66eee`. Used by the wallet adapter.
+
+**Outcome names** -- side names are resolved from `outcomeMeta.sideSpecs` (e.g. "Yes"/"No", "Hypurr"/"Usain Bolt") and cached permanently. All adapters share a single resolver so prices, positions, and events consistently display real names instead of generic "Side 0"/"Side 1".
 
 **Coin naming** -- `@<outcomeId>` for AMM price lookups, `#<outcomeId><sideIndex>` for tradeable instruments. Asset IDs: `100_000_000 + outcomeId * 10 + sideIndex`.
 
@@ -71,19 +79,24 @@ const categories = await hip4.events.fetchCategories();
 #### Market Data
 
 ```typescript
-const book = await hip4.marketData.fetchOrderBook("516", 0);    // side 0 = Yes
-const price = await hip4.marketData.fetchPrice("516");           // both sides
+const book = await hip4.marketData.fetchOrderBook("516", 0);    // side 0
+const price = await hip4.marketData.fetchPrice("516");           // both sides, real names from sideSpecs
 const trades = await hip4.marketData.fetchTrades("516", 20);
 const candles = await hip4.marketData.fetchCandles("516", "1h");
 
+// Real-time WebSocket subscriptions
 const unsub = hip4.marketData.subscribeOrderBook("516", (book) => { /* ... */ });
 const unsub2 = hip4.marketData.subscribePrice("516", (price) => { /* ... */ });
+const unsub3 = hip4.marketData.subscribeTrades("516", (trade) => { /* ... */ });
 ```
 
 #### Account
 
 ```typescript
 const positions = await hip4.account.fetchPositions(address);
+// positions[].outcomeName gives the resolved sideSpec name (e.g. "Hypurr")
+// positions[].outcome gives the raw coin ID (e.g. "#90") for lookups
+
 const activity = await hip4.account.fetchActivity(address);
 const balances = await hip4.account.fetchBalance(address);
 const orders = await hip4.account.fetchOpenOrders(address);
@@ -94,7 +107,7 @@ const unsub = hip4.account.subscribePositions(address, (positions) => { /* ... *
 #### Trading
 
 ```typescript
-// Auth: ephemeral agent key model
+// Auth: approve an ephemeral agent key, then all trades are signed silently
 import { getAgentApprovalTypedData, submitAgentApproval } from "@perps/hip4";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
@@ -119,6 +132,28 @@ const result = await hip4.trading.placeOrder({
 await hip4.trading.cancelOrder({ marketId: "516", orderId: "12345", outcome: "#5160" });
 ```
 
+#### Wallet Operations
+
+Wallet operations use EIP-712 user signing (not agent signing) and must be signed by the user's actual wallet. Call `wallet.setSigner()` with a viem-compatible signer before use.
+
+```typescript
+// Set the user's wallet as the signer (not the agent key)
+hip4.wallet.setSigner({
+  address: userAddress,
+  signTypedData: walletClient.signTypedData.bind(walletClient),
+});
+
+// Transfer USDC between Perp and Spot (HIP-4 uses Spot balances)
+await hip4.wallet.usdClassTransfer({ amount: "100", toPerp: false }); // Perp → Spot (fund predictions)
+await hip4.wallet.usdClassTransfer({ amount: "50", toPerp: true });   // Spot → Perp
+
+// Withdraw to external address
+await hip4.wallet.withdraw({ destination: "0x...", amount: "100" });
+
+// Send USDC to another HL address
+await hip4.wallet.usdSend({ destination: "0x...", amount: "50" });
+```
+
 #### React
 
 ```tsx
@@ -129,10 +164,10 @@ import { useEvents, usePredictionBook, usePredictionPrice } from "@perps/hip4/ho
 ### Testing
 
 ```bash
-npm test          # 175 tests across 14 files
+npm test          # 282 tests across 24 files
 ```
 
-Coverage includes: keccak-256 against known vectors, msgpack encoding, action sorting, L1 action hash cross-validated against @nktkas/hyperliquid, viem + ethers signer acceptance, agent approval typed data construction, all adapter mapping logic, retry behavior, WebSocket reconnection state.
+Coverage includes: keccak-256 against known vectors, msgpack encoding, action sorting, L1 action hash cross-validated against @nktkas/hyperliquid, viem + ethers signer acceptance, agent approval typed data construction, all adapter mapping logic, retry behavior, WebSocket reconnection and per-coin subscription dispatch, user-signed EIP-712 action signing (domain construction, message filtering, signatureChainId validation), wallet adapter operations (signer detection, viem wrapping, usdClassTransfer, withdraw, usdSend, error paths), side name resolution from outcomeMeta sideSpecs.
 
 ---
 
@@ -148,23 +183,25 @@ Coverage includes: keccak-256 against known vectors, msgpack encoding, action so
 | `fetchEvent(eventId)` | Single event by ID (`q<n>` for questions, `o<n>` for standalone) |
 | `fetchCategories()` | Returns `[{ id, name, slug }]` -- "custom" and "recurring" |
 
+Side names from `outcomeMeta.sideSpecs` are cached on first fetch and shared across all adapters.
+
 #### `adapter.marketData` -- PredictionMarketDataAdapter
 
 | Method | Description |
 |--------|-------------|
-| `fetchOrderBook(marketId, sideIndex?)` | L2 snapshot. `sideIndex` defaults to 0 (Yes) |
-| `fetchPrice(marketId)` | Both sides from allMids. 5s cache |
+| `fetchOrderBook(marketId, sideIndex?)` | L2 snapshot. `sideIndex` defaults to 0 |
+| `fetchPrice(marketId)` | Both sides from allMids. Outcome names resolved from sideSpecs. 5s cache |
 | `fetchTrades(marketId, limit?)` | Recent trades. Default limit 50 |
 | `fetchCandles(marketId, interval?, start?, end?)` | OHLCV. Default 1h interval, 14 days |
-| `subscribeOrderBook(marketId, cb)` | WebSocket l2Book channel |
-| `subscribePrice(marketId, cb)` | WebSocket allMids channel |
-| `subscribeTrades(marketId, cb)` | WebSocket trades channel |
+| `subscribeOrderBook(marketId, cb)` | Real-time L2 book via WebSocket |
+| `subscribePrice(marketId, cb)` | Real-time prices via WebSocket allMids |
+| `subscribeTrades(marketId, cb)` | Real-time trades via WebSocket |
 
 #### `adapter.account` -- PredictionAccountAdapter
 
 | Method | Description |
 |--------|-------------|
-| `fetchPositions(address)` | From spotClearinghouseState, filtered to outcome coins |
+| `fetchPositions(address)` | Spot balances filtered to outcome coins. Each position has `outcome` (coin ID) and `outcomeName` (display name from sideSpecs) |
 | `fetchActivity(address)` | userFillsByTime, last 30 days, outcome coins only |
 | `fetchBalance(address)` | Raw spot balances (USDH, outcome tokens) |
 | `fetchOpenOrders(address)` | Resting orders (frontendOpenOrders) |
@@ -179,7 +216,7 @@ Coverage includes: keccak-256 against known vectors, msgpack encoding, action so
 
 Order params: `{ marketId, outcome, side, type, price?, amount, timeInForce? }`
 
-Market orders use `FrontendMarket` TIF with ceiling/floor pricing (`0.99999`/`0.00001`) for best-execution.
+Market orders use `FrontendMarket` TIF with ceiling/floor pricing for best-execution. All orders are signed with L1 agent signing.
 
 #### `adapter.auth` -- PredictionAuthAdapter
 
@@ -188,6 +225,17 @@ Market orders use `FrontendMarket` TIF with ceiling/floor pricing (`0.99999`/`0.
 | `initAuth(walletAddress, signer)` | Accepts viem PrivateKeyAccount or ethers Signer |
 | `getAuthStatus()` | `{ status: "disconnected" | "pending_approval" | "ready", address? }` |
 | `clearAuth()` | Reset to disconnected |
+
+#### `adapter.wallet` -- HIP4WalletAdapter
+
+| Method | Description |
+|--------|-------------|
+| `setSigner(signer)` | Set the user's wallet for signing. Auto-wraps viem-style objects. Throws on invalid signer |
+| `usdClassTransfer({ amount, toPerp })` | Transfer between Spot and Perp. `toPerp: false` = deposit into predictions |
+| `withdraw({ destination, amount })` | Withdraw USDC to external address (`withdraw3` action) |
+| `usdSend({ destination, amount })` | Send USDC to another HL address |
+
+All wallet methods return `{ success, error? }` and use EIP-712 user signing on the `HyperliquidSignTransaction` domain (`signatureChainId: 0x66eee`). The signer must be the user's actual wallet -- agent keys will be rejected by the exchange.
 
 #### Agent Wallet Helpers
 
@@ -208,7 +256,9 @@ Market orders use `FrontendMarket` TIF with ceiling/floor pricing (`0.99999`/`0.
 
 ### Signing Internals
 
-The signing pipeline (`src/adapter/hyperliquid/signing.ts`):
+#### L1 Agent Signing (orders, cancels)
+
+Pipeline in `src/adapter/hyperliquid/signing.ts`:
 
 1. **Sort** action keys in canonical order (type -> orders -> grouping for orders; type -> cancels for cancels). Price/size strings have trailing zeros stripped
 2. **MessagePack encode** the sorted action object
@@ -218,6 +268,16 @@ The signing pipeline (`src/adapter/hyperliquid/signing.ts`):
 6. **EIP-712 sign** with domain `{ name: "Exchange", version: "1", chainId: 1337 }`, primaryType `Agent`, message `{ source: "a"|"b", connectionId }`
 
 The msgpack encoder and keccak-256 are implemented inline (~350 lines). Hash output is cross-validated against `@nktkas/hyperliquid` in tests.
+
+#### User-Signed EIP-712 (wallet operations)
+
+Used for `withdraw3`, `usdClassTransfer`, `usdSend`, and other wallet-level actions. The action is signed directly as EIP-712 typed data:
+
+- Domain: `{ name: "HyperliquidSignTransaction", version: "1", chainId: <from signatureChainId>, verifyingContract: 0x0 }`
+- `signatureChainId` is always `0x66eee` (421614) per Hyperliquid convention
+- `hyperliquidChain` is `"Mainnet"` or `"Testnet"` to distinguish environments
+- The message is filtered to only include keys defined in the EIP-712 types (wallet compatibility)
+- Invalid `signatureChainId` values are rejected with a descriptive error
 
 ### Network Configuration
 
@@ -229,4 +289,3 @@ The msgpack encoder and keccak-256 are implemented inline (~350 lines). Hash out
 ### License
 
 BUSL-1.1
-# hip-4

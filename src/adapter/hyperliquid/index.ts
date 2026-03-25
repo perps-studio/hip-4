@@ -14,6 +14,7 @@ import { HIP4Client } from "./client";
 import { HIP4EventAdapter } from "./events";
 import { HIP4MarketDataAdapter } from "./market-data";
 import { HIP4TradingAdapter } from "./trading";
+import { HIP4WalletAdapter } from "./wallet";
 
 export class HyperliquidHip4Adapter implements PredictionsAdapter {
   readonly id = "hyperliquid";
@@ -23,6 +24,7 @@ export class HyperliquidHip4Adapter implements PredictionsAdapter {
   readonly account: PredictionsAdapter["account"];
   readonly trading: PredictionsAdapter["trading"];
   readonly auth: PredictionsAdapter["auth"];
+  readonly wallet: HIP4WalletAdapter;
 
   private readonly client: HIP4Client;
   private readonly _marketData: HIP4MarketDataAdapter;
@@ -40,16 +42,24 @@ export class HyperliquidHip4Adapter implements PredictionsAdapter {
 
     const auth = new HIP4Auth();
     const eventAdapter = new HIP4EventAdapter(this.client);
+    this._events = eventAdapter;
     this.events = eventAdapter;
-    this._marketData = new HIP4MarketDataAdapter(this.client);
+    const sideNameResolver = eventAdapter.getSideNameResolver();
+    const ensureSideNames = () => eventAdapter.ensureSideNames();
+    this._marketData = new HIP4MarketDataAdapter(this.client, sideNameResolver, ensureSideNames);
     this.marketData = this._marketData;
-    this.account = new HIP4AccountAdapter(this.client, eventAdapter);
+    this.account = new HIP4AccountAdapter(this.client, eventAdapter, sideNameResolver);
     this.trading = new HIP4TradingAdapter(this.client, auth);
     this.auth = auth;
+    this.wallet = new HIP4WalletAdapter(this.client);
   }
 
+  private readonly _events: HIP4EventAdapter;
+
   async initialize(): Promise<void> {
-    await this.events.fetchCategories();
+    // Populate the side names cache from outcomeMeta so sideSpec names are
+    // available before any market data or account queries.
+    await this._events.ensureSideNames();
   }
 
   destroy(): void {

@@ -443,8 +443,8 @@ export function sortOrderAction(action: HLOrderAction & { builder?: { b: string;
       t: t,
     };
     // Only include 'c' if it exists and is defined
-    if ("c" in o && o.c !== undefined) {
-      wire.c = (o as Record<string, unknown>).c;
+    if (o.c !== undefined) {
+      wire.c = o.c;
     }
     return wire;
   });
@@ -575,6 +575,94 @@ export async function signL1Action(params: {
   const rawSig = await signer.signTypedData(
     AGENT_DOMAIN as unknown as Record<string, unknown>,
     AGENT_TYPES,
+    message,
+  );
+
+  return normalizeSignature(rawSig);
+}
+
+// ---------------------------------------------------------------------------
+// User-Signed EIP-712 (HyperliquidSignTransaction domain)
+//
+// Used for wallet-level operations: withdraw, usdClassTransfer, usdSend,
+// approveAgent, approveBuilderFee, etc. NOT used for orders/cancels (those
+// always use L1 agent signing above).
+//
+// Reference: @nktkas/hyperliquid signing/mod.ts — signUserSignedAction
+// ---------------------------------------------------------------------------
+
+/** EIP-712 types for withdraw3. */
+export const WITHDRAW_TYPES = {
+  "HyperliquidTransaction:Withdraw": [
+    { name: "hyperliquidChain", type: "string" },
+    { name: "destination", type: "string" },
+    { name: "amount", type: "string" },
+    { name: "time", type: "uint64" },
+  ],
+};
+
+/** EIP-712 types for usdClassTransfer (spot ↔ perp). */
+export const USD_CLASS_TRANSFER_TYPES = {
+  "HyperliquidTransaction:UsdClassTransfer": [
+    { name: "hyperliquidChain", type: "string" },
+    { name: "amount", type: "string" },
+    { name: "toPerp", type: "bool" },
+    { name: "nonce", type: "uint64" },
+  ],
+};
+
+/** EIP-712 types for usdSend. */
+export const USD_SEND_TYPES = {
+  "HyperliquidTransaction:UsdSend": [
+    { name: "hyperliquidChain", type: "string" },
+    { name: "destination", type: "string" },
+    { name: "amount", type: "string" },
+    { name: "time", type: "uint64" },
+  ],
+};
+
+/**
+ * Sign a user-signed action (EIP-712 on HyperliquidSignTransaction domain).
+ *
+ * The action must include `signatureChainId` (hex chain ID for the EIP-712
+ * domain). The message is filtered to only include keys defined in `types`.
+ *
+ * Reference: @nktkas/hyperliquid signing/mod.ts
+ */
+export async function signUserSignedAction(params: {
+  signer: HIP4Signer;
+  action: Record<string, unknown> & { signatureChainId: string };
+  types: Record<string, Array<{ name: string; type: string }>>;
+}): Promise<HLSignature> {
+  const { signer, action, types } = params;
+
+  const primaryType = Object.keys(types)[0];
+  if (!primaryType || !types[primaryType]) {
+    throw new Error("EIP-712 types object is empty");
+  }
+
+  // Filter action to only include keys defined in types (wallet compat)
+  const knownKeys = new Set(types[primaryType].map((f) => f.name));
+  const message: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(action)) {
+    if (knownKeys.has(k)) message[k] = v;
+  }
+
+  const chainId = parseInt(action.signatureChainId, 16);
+  if (isNaN(chainId)) {
+    throw new Error(`Invalid signatureChainId: "${action.signatureChainId}"`);
+  }
+
+  const domain = {
+    name: "HyperliquidSignTransaction",
+    version: "1",
+    chainId,
+    verifyingContract: "0x0000000000000000000000000000000000000000",
+  };
+
+  const rawSig = await signer.signTypedData(
+    domain as unknown as Record<string, unknown>,
+    types,
     message,
   );
 

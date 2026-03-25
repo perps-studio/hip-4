@@ -252,6 +252,19 @@ export class HIP4Client {
     });
   }
 
+  /** Submit a user-signed action (withdraw, usdClassTransfer, etc.) */
+  async submitUserSignedAction(
+    action: Record<string, unknown>,
+    nonce: number,
+    signature: HLSignature,
+  ): Promise<{ status: string; response?: unknown }> {
+    return this.exchangePost({
+      action,
+      nonce,
+      signature,
+    });
+  }
+
   // -- Internal -------------------------------------------------------------
 
   private async infoPost<T>(body: Record<string, unknown>): Promise<T> {

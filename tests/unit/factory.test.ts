@@ -10,6 +10,8 @@ vi.mock("../../src/adapter/hyperliquid/events", () => ({
     fetchEvents = vi.fn().mockResolvedValue([]);
     fetchEvent = vi.fn().mockResolvedValue({});
     fetchCategories = vi.fn().mockResolvedValue([]);
+    getSideNameResolver = vi.fn().mockReturnValue(() => null);
+    ensureSideNames = vi.fn().mockResolvedValue(undefined);
   },
 }));
 

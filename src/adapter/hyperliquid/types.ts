@@ -185,6 +185,8 @@ export interface HLOrderWire {
   s: string; // size
   r: boolean; // reduce only
   t: HLOrderType;
+  /** Client order ID (hex string). Optional. */
+  c?: string;
 }
 
 export type HLOrderType =
