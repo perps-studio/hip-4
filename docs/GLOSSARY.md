@@ -86,7 +86,7 @@ A comprehensive glossary of every term, concept, and convention used in this SDK
 
 **HyperliquidHip4Adapter** - The concrete implementation of `PredictionsAdapter` for Hyperliquid HIP-4. Composes `HIP4EventAdapter`, `HIP4MarketDataAdapter`, `HIP4AccountAdapter`, `HIP4TradingAdapter`, `HIP4Auth`, and `HIP4WalletAdapter` around a shared `HIP4Client` instance. (`src/adapter/hyperliquid/index.ts`: `HyperliquidHip4Adapter`)
 
-**PredictionsAdapterProvider** - A React context provider that makes a `PredictionsAdapter` instance available to all descendant components via `usePredictionsAdapter()`. Calls `adapter.initialize()` on mount and `adapter.destroy()` on unmount. (`src/adapter/context.tsx`: `PredictionsAdapterProvider`)
+**PredictionsAdapterProvider** - A React context provider that makes a `PredictionsAdapter` instance available to all descendant components via `usePredictionsAdapter()`. Calls `adapter.initialize()` on mount and `adapter.destroy()` on unmount. Available in `@perps/hip4-react`.
 
 **SideNameResolver** - A function type `(outcomeId: number) => [string, string] | null` that resolves outcome IDs to their sideSpec names (e.g. `[\"Yes\", \"No\"]` or `[\"Hypurr\", \"Usain Bolt\"]`). Populated from `outcomeMeta` on first fetch and cached permanently. Shared across events, market-data, and account adapters. (`src/adapter/hyperliquid/events.ts`: `SideNameResolver`)
 
@@ -94,7 +94,7 @@ A comprehensive glossary of every term, concept, and convention used in this SDK
 
 **Unsubscribe** - A function type `() => void` returned by all subscription methods. Calling it removes the callback and, if no subscriptions remain, closes the underlying WebSocket connection. (`src/adapter/types.ts`: `Unsubscribe`)
 
-**usePredictionsAdapter** - A React hook that retrieves the `PredictionsAdapter` from context. Throws if called outside a `PredictionsAdapterProvider`. Used internally by all SDK hooks. (`src/adapter/context.tsx`: `usePredictionsAdapter`)
+**usePredictionsAdapter** - A React hook that retrieves the `PredictionsAdapter` from context. Throws if called outside a `PredictionsAdapterProvider`. Available in `@perps/hip4-react`.
 
 ---
 
@@ -220,7 +220,7 @@ The SDK implements two EIP-712 signing flows. Both produce `HLSignature` objects
 
 **Subscription routing** - WebSocket messages are routed to callbacks based on a subscription key. Per-coin subscriptions use `channel:coin` keys (e.g. `l2Book:#100`); channel-only subscriptions use just the channel name (e.g. `allMids`). The `onmessage` handler extracts `data.coin` from the message payload (or `data[0].coin` for array payloads like trades) to match per-coin subscribers, then falls through to channel-only subscribers. (`src/adapter/hyperliquid/market-data.ts`: `subscribeWs`, `ensureWs` onmessage handler)
 
-**Throttling (hook updates)** - The React hooks (`usePredictionPrice`, `usePredictionBook`, `usePredictionPositions`) throttle state updates to a minimum interval of `THROTTLE_MS = 200` ms. Rapid updates within this window are coalesced via `setTimeout`, ensuring the last value is always delivered. (`src/hooks/use-prediction-price.ts`, `src/hooks/use-prediction-book.ts`, `src/hooks/use-prediction-positions.ts`)
+**Throttling (hook updates)** - The React hooks in `@perps/hip4-react` (`usePredictionPrice`, `usePredictionBook`, `usePredictionPositions`) throttle state updates to a minimum interval of 200ms. Rapid updates within this window are coalesced via `setTimeout`, ensuring the last value is always delivered.
 
 **WebSocket pool** - A shared single-connection pool managed by `HIP4MarketDataAdapter`. All subscriptions (l2Book, allMids, trades) share one WebSocket connection. The pool entry stores the `WebSocket` instance, a `subscriptions` map, and a `refCount`. On disconnect, the pool attempts reconnection with exponential backoff and restores all subscriptions. (`src/adapter/hyperliquid/market-data.ts`: `WsPoolEntry`, `ensureWs`)
 
@@ -228,15 +228,11 @@ The SDK implements two EIP-712 signing flows. Both produce `HLSignature` objects
 
 ## React Hooks
 
-**useEventDetail** - Fetches a single `PredictionEvent` by ID. Returns `{ event, isLoading, error }`. (`src/hooks/use-event-detail.ts`)
+React hooks and the context provider are available in `@perps/hip4-react`:
 
-**useEvents** - Fetches a filtered list of `PredictionEvent[]`. Accepts `UseEventsParams` (`category`, `active`, `limit`, `offset`, `query`). Returns `{ events, isLoading, error }`. (`src/hooks/use-events.ts`)
+**useEvents**, **useEventDetail**, **usePredictionBook**, **usePredictionPrice**, **usePredictionPositions**, **PredictionsAdapterProvider**, **usePredictionsAdapter**
 
-**usePredictionBook** - Fetches and subscribes to the `PredictionOrderBook` for a market. Returns `{ data, isLoading, error }`. Throttled at 200ms. (`src/hooks/use-prediction-book.ts`)
-
-**usePredictionPositions** - Fetches and subscribes to `PredictionPosition[]` for a wallet address. Uses polling (10s interval) under the hood. Returns `{ data, isLoading, error }`. Throttled at 200ms. (`src/hooks/use-prediction-positions.ts`)
-
-**usePredictionPrice** - Fetches and subscribes to `PredictionPrice` for a market. Returns `{ data, isLoading, error }`. Throttled at 200ms. (`src/hooks/use-prediction-price.ts`)
+See [@perps/hip4-react](https://github.com/perps-studio/hip4-react) for documentation.
 
 ---
 

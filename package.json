@@ -26,16 +26,6 @@
         "types": "./dist/types/index.d.cts",
         "default": "./dist/types.cjs"
       }
-    },
-    "./hooks": {
-      "import": {
-        "types": "./dist/hooks/index.d.ts",
-        "default": "./dist/hooks.js"
-      },
-      "require": {
-        "types": "./dist/hooks/index.d.cts",
-        "default": "./dist/hooks.cjs"
-      }
     }
   },
   "files": [
@@ -65,18 +55,8 @@
   ],
   "author": "Dennis Furrer",
   "license": "BUSL-1.1",
-  "peerDependencies": {
-    "react": ">=18.0.0"
-  },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    }
-  },
   "devDependencies": {
-    "@types/react": "^19.0.0",
     "@vitest/coverage-v8": "^4.1.0",
-    "react": "^19.0.0",
     "tsup": "^8.0.0",
     "typescript": "^5.7.3",
     "vitest": "^4.1.0"

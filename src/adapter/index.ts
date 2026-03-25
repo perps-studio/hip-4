@@ -1,7 +1,3 @@
-export {
-  PredictionsAdapterProvider,
-  usePredictionsAdapter,
-} from "./context";
 export { createHIP4Adapter } from "./factory";
 export type { CreateHIP4AdapterConfig } from "./factory";
 export type {

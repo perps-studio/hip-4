@@ -14,6 +14,8 @@ A typed adapter interface for HIP-4 prediction markets on Hyperliquid. Fetch eve
 
 HIP-4 extends Hyperliquid's L1 with binary outcome markets. Each outcome has two sides (e.g. Yes/No or named alternatives like "Hypurr"/"Usain Bolt"), traded as probability tokens priced 0-1. This SDK wraps the HL REST + WebSocket API with HIP-4-specific coin naming, signing, and data mapping.
 
+React bindings (provider + hooks) are available separately via [@perps/hip4-react](https://github.com/perps-studio/hip4-react).
+
 ### Architecture
 
 ```mermaid
@@ -167,10 +169,19 @@ USDH spot orders price at oracle ± 10% using `Ioc` TIF, fetching the oracle fro
 
 #### React
 
-```tsx
-import { PredictionsAdapterProvider, usePredictionsAdapter } from "@perps/hip4";
-import { useEvents, usePredictionBook, usePredictionPrice } from "@perps/hip4/hooks";
+React bindings are in a separate package:
+
+```bash
+npm install @perps/hip4-react
 ```
+
+```tsx
+import { createHIP4Adapter } from "@perps/hip4";
+import { PredictionsAdapterProvider, usePredictionsAdapter } from "@perps/hip4-react";
+import { useEvents, usePredictionBook, usePredictionPrice } from "@perps/hip4-react";
+```
+
+See [@perps/hip4-react](https://github.com/perps-studio/hip4-react) for full documentation.
 
 ### Testing
 
@@ -258,16 +269,6 @@ All methods return `{ success, error?, filledSz?, avgPx? }`. USDH spot orders fe
 |--------|-------------|
 | `getAgentApprovalTypedData(addr, name, nonce, isMainnet?)` | EIP-712 typed data for ApproveAgent |
 | `submitAgentApproval(sig, addr, name, nonce, isMainnet?, url?)` | POST to HL /exchange |
-
-#### React Hooks
-
-| Hook | Returns |
-|------|---------|
-| `useEvents(params?)` | `{ events, isLoading, error }` |
-| `useEventDetail(eventId)` | `{ event, isLoading, error }` |
-| `usePredictionBook(marketId)` | `{ data: OrderBook, isLoading, error }` -- WebSocket streaming |
-| `usePredictionPrice(marketId)` | `{ data: Price, isLoading, error }` -- WebSocket streaming |
-| `usePredictionPositions(address)` | `{ data: Position[], isLoading, error }` -- 10s polling |
 
 ### Signing Internals
 

@@ -16,7 +16,7 @@
 8. [Trading Adapter](#8-trading-adapter)
 9. [Auth Adapter](#9-auth-adapter)
 10. [Type System](#10-type-system)
-11. [React Hooks](#11-react-hooks)
+11. [React Bindings](#11-react-bindings)
 12. [Implementation Notes](#12-implementation-notes)
 13. [Known Limitations](#13-known-limitations)
 14. [Integration Examples](#14-integration-examples)
@@ -32,18 +32,17 @@
 | **License**              | BSL 1.1 (Business Source License) - converts to MIT on 2028-03-21. Production use requires a commercial license from Dennis Furrer (dennis@perps.studio). Evaluation, testing, non-production development, academic use, and personal non-commercial projects are permitted without a separate agreement. |
 | **Author**               | Dennis Furrer                                                                                                                                                                                                                                                                                             |
 | **Runtime dependencies** | Zero. The package has no `dependencies` at all.                                                                                                                                                                                                                                                           |
-| **Peer dependencies**    | `react >=18.0.0` (optional - only needed for hooks/context)                                                                                                                                                                                                                                               |
-| **Dev dependencies**     | `@types/react`, `react`, `tsup`, `typescript`                                                                                                                                                                                                                                                             |
+| **Peer dependencies**    | None. React bindings are in `@perps/hip4-react`.                                                                                                                                                                                                                                                          |
+| **Dev dependencies**     | `tsup`, `typescript`, `vitest`                                                                                                                                                                                                                                                                            |
 | **Build tool**           | tsup                                                                                                                                                                                                                                                                                                      |
 | **Distribution**         | ESM (`.js`) + CJS (`.cjs`) + TypeScript declarations (`.d.ts` / `.d.cts`) with sourcemaps. Code-splitting and tree-shaking are enabled.                                                                                                                                                                   |
 
 ### Entry Points
 
-| Import path         | Resolves to          | Contents                           |
-| ------------------- | -------------------- | ---------------------------------- |
-| `@perps/hip4`       | `src/index.ts`       | Everything - adapter, types, hooks |
-| `@perps/hip4/types` | `src/types/index.ts` | Pure type definitions only         |
-| `@perps/hip4/hooks` | `src/hooks/index.ts` | React hooks only                   |
+| Import path         | Resolves to          | Contents                    |
+| ------------------- | -------------------- | --------------------------- |
+| `@perps/hip4`       | `src/index.ts`       | Adapter, types, wallet      |
+| `@perps/hip4/types` | `src/types/index.ts` | Pure type definitions only  |
 
 ### Architecture
 
@@ -65,8 +64,6 @@ The factory creates a `HyperliquidHip4Adapter` which composes six sub-adapters a
 
 | Export                        | Kind             |
 | ----------------------------- | ---------------- |
-| `PredictionsAdapterProvider`  | React component  |
-| `usePredictionsAdapter`       | React hook       |
 | `createHIP4Adapter`           | Factory function |
 | `CreateHIP4AdapterConfig`     | Type             |
 | `PredictionsAdapter`          | Type (interface) |
@@ -1317,94 +1314,17 @@ type Unsubscribe = () => void;
 
 ---
 
-## 11. React Hooks
+## 11. React Bindings
 
-All hooks are `"use client"` components. They require a `PredictionsAdapterProvider` ancestor in the component tree.
+React bindings (context provider + hooks) are available as a separate package: `@perps/hip4-react`.
 
-### Context & Provider
+```bash
+npm install @perps/hip4-react
+```
 
-#### `PredictionsAdapterProvider`
+Exports: `PredictionsAdapterProvider`, `usePredictionsAdapter`, `useEvents`, `useEventDetail`, `usePredictionBook`, `usePredictionPrice`, `usePredictionPositions`.
 
-Props: `{ adapter: PredictionsAdapter; children: ReactNode }`
-
-On mount: calls `adapter.initialize()` (fire-and-forget, errors logged to console).
-On unmount: calls `adapter.destroy()`.
-Provides the adapter via React context.
-
-#### `usePredictionsAdapter(): PredictionsAdapter`
-
-Returns the adapter from context. Throws `"usePredictionsAdapter must be used within a PredictionsAdapterProvider"` if no provider exists.
-
-### `useEvents(params?: UseEventsParams)`
-
-**File**: `src/hooks/use-events.ts`
-
-**Params** (`UseEventsParams`):
-
-| Field      | Type       |
-| ---------- | ---------- |
-| `category` | `string?`  |
-| `active`   | `boolean?` |
-| `limit`    | `number?`  |
-| `offset`   | `number?`  |
-| `query`    | `string?`  |
-
-**Returns**: `{ events: PredictionEvent[] | null; isLoading: boolean; error: Error | null }`
-
-Behavior: Calls `adapter.events.fetchEvents(params)` on mount and whenever the `paramKey` changes. The `paramKey` is a pipe-delimited string of all params for change detection. Uses a `cancelled` flag to prevent stale updates.
-
-### `useEventDetail(eventId: string)`
-
-**File**: `src/hooks/use-event-detail.ts`
-
-**Returns**: `{ event: PredictionEvent | null; isLoading: boolean; error: Error | null }`
-
-Behavior: Calls `adapter.events.fetchEvent(eventId)` on mount and whenever `eventId` changes. No-ops if `eventId` is falsy.
-
-### `usePredictionPrice(marketId: string)`
-
-**File**: `src/hooks/use-prediction-price.ts`
-
-**Returns**: `{ data: PredictionPrice | null; isLoading: boolean; error: Error | null }`
-
-Behavior:
-
-1. **Initial fetch**: Calls `adapter.marketData.fetchPrice(marketId)` on mount
-2. **Live subscription**: Subscribes via `adapter.marketData.subscribePrice(marketId, ...)` in a separate effect
-3. **Throttling**: Updates are throttled to `THROTTLE_MS = 200` milliseconds. If an update arrives within the throttle window, a `setTimeout` is set to apply the latest value at the end of the window.
-
-### `usePredictionPositions(address: string)`
-
-**File**: `src/hooks/use-prediction-positions.ts`
-
-**Returns**: `{ data: PredictionPosition[] | null; isLoading: boolean; error: Error | null }`
-
-Behavior:
-
-1. **Initial fetch**: Calls `adapter.account.fetchPositions(address)` on mount
-2. **Live subscription**: Subscribes via `adapter.account.subscribePositions(address, ...)` in a separate effect
-3. **Throttling**: Same 200ms throttle pattern as `usePredictionPrice`
-
-### `usePredictionBook(marketId: string)`
-
-**File**: `src/hooks/use-prediction-book.ts`
-
-**Returns**: `{ data: PredictionOrderBook | null; isLoading: boolean; error: Error | null }`
-
-Behavior:
-
-1. **Initial fetch**: Calls `adapter.marketData.fetchOrderBook(marketId)` on mount
-2. **Live subscription**: Subscribes via `adapter.marketData.subscribeOrderBook(marketId, ...)` in a separate effect
-3. **Throttling**: Same 200ms throttle pattern as `usePredictionPrice`
-
-### Common Hook Pattern
-
-All hooks follow the same structure:
-
-- `useState` for `data`/`isLoading`/`error`
-- First `useEffect` for initial data fetch with `cancelled` flag
-- Second `useEffect` (where applicable) for WebSocket/poll subscription with throttling
-- Cleanup on unmount (cancel fetch flag, unsubscribe, clear timers)
+See [@perps/hip4-react](https://github.com/perps-studio/hip4-react) for full documentation.
 
 ---
 
@@ -1418,9 +1338,9 @@ HIP-4 outcome tokens are spot assets, not perpetual positions. They appear as to
 
 The `initAuth` method accepts a `walletAddress` and a `signer` but never verifies that `signer.getAddress()` matches `walletAddress`. This is intentional for agent wallet support. Hyperliquid API wallets use a delegation model where an agent key signs on behalf of a user address. The signer's address is the agent, while `walletAddress` is the actual user account.
 
-### Market Order Slippage
+### Market Order Pricing
 
-The `DEFAULT_MARKET_SLIPPAGE` of 8% (0.08) is applied to the midpoint price. For buys, the limit price is `mid * 1.08`; for sells, `mid * 0.92`. The resulting price is clamped to `[0.0001, 0.9999]` since prediction markets trade in the 0-1 probability range. Market orders use `FrontendMarket` TIF which is HL's frontend market order type (internally an aggressive IOC limit).
+HIP-4 market orders use `FrontendMarket` TIF with extreme prices (`0.99999` for buys, `0.00001` for sells). The exchange handles best-execution. USDH spot orders use `Ioc` TIF with prices at oracle ± 10%, fetching the oracle from `spotMetaAndAssetCtxs`.
 
 ### MessagePack Note
 
@@ -1428,7 +1348,7 @@ The SDK uses `application/json` for all API communication. Hyperliquid also supp
 
 ### WebSocket Pooling
 
-A single WebSocket connection is shared across all market data subscriptions. The pool uses reference counting - the connection opens lazily on the first subscription and closes automatically when the last subscriber unsubscribes (`refCount <= 0`). Subscription dispatch uses channel-based routing with wildcard support (used by `subscribePrice` via the `allMids` channel).
+A single WebSocket connection is shared across all market data subscriptions. The pool uses reference counting — the connection opens lazily on the first subscription and closes automatically when the last subscriber unsubscribes (`refCount <= 0`). Subscription dispatch extracts `data.coin` from incoming messages (or `data[0].coin` for array payloads like trades) to route to per-coin subscribers, then falls through to channel-only subscribers (e.g. `allMids`). Auto-reconnect with exponential backoff (max 10 attempts) restores all subscriptions after disconnect.
 
 ### Cache Choices
 
@@ -1440,7 +1360,10 @@ A single WebSocket connection is shared across all market data subscriptions. Th
 
 ### EIP-712 Domain Configuration
 
-The SDK uses Arbitrum chain IDs: `421614` for testnet (Arbitrum Sepolia), `42161` for mainnet (Arbitrum One). The verifying contract is the zero address, following Hyperliquid's signing convention. Both order and cancel actions use the same EIP-712 type structure (`HyperliquidTransaction:Exchange` with `action` string and `nonce` uint64).
+Two EIP-712 domains are used:
+
+- **L1 agent signing** (orders, cancels, USDH trades): domain `Exchange`, chainId `1337`, primaryType `Agent`. The action is msgpack-encoded and keccak-256 hashed into a `connectionId`.
+- **User-signed actions** (transfers, withdrawals, sends): domain `HyperliquidSignTransaction`, chainId from `signatureChainId` (`0x66eee` = 421614). The action fields are signed directly as typed data.
 
 ### Nonce Generation
 
@@ -1489,7 +1412,7 @@ These methods exist on `HIP4Client` but are not called by any adapter:
 
 ### WebSocket Limitations
 
-20. **No reconnection logic**: If the WebSocket connection drops, it is not automatically reconnected. The pool entry is nullified on close and a new connection is created on the next subscription, but existing subscribers are not re-subscribed.
+20. **Reconnection restores subscriptions**: WebSocket auto-reconnects with exponential backoff (max 10 attempts) and restores all active subscriptions. However, data received during the disconnect window is lost.
 21. **No unsubscribe message sent**: When a subscriber unsubscribes, the WS unsubscribe message is not sent to the server. The connection is just closed when refCount reaches 0.
 22. **No heartbeat/ping**: No keepalive mechanism for the WebSocket connection.
 23. **Unparseable frames silently ignored**: JSON parse errors in `onmessage` are caught and discarded.
@@ -1506,7 +1429,7 @@ These methods exist on `HIP4Client` but are not called by any adapter:
 ### Architecture Limitations
 
 27. **WebSocket URL not configurable**: Unlike `infoUrl` and `exchangeUrl`, the WebSocket URL cannot be overridden via config.
-28. **No retry/backoff on API errors**: HTTP requests that fail with non-OK status throw immediately with no retry.
+28. **Single retry on 5xx**: Info endpoint requests retry once with a 1-second delay on 5xx or network errors. 4xx errors are not retried. Exchange endpoint requests are not retried.
 29. **Floating point arithmetic for positions**: `mapSpotBalance` uses `parseFloat` for financial calculations (avgCost, unrealizedPnl, potentialPayout), which can introduce precision errors.
 30. **Console.log in production paths**: The trading adapter logs order details to `console.log`, which may leak to production.
 31. **HLWsTradeData type defined but unused**: The type exists in `types.ts` but is never referenced. Actual trade data is typed as `HLTrade` after `isTradesData` guard.
@@ -1534,7 +1457,8 @@ adapter.destroy();
 ### React Setup
 
 ```tsx
-import { createHIP4Adapter, PredictionsAdapterProvider } from "@perps/hip4";
+import { createHIP4Adapter } from "@perps/hip4";
+import { PredictionsAdapterProvider } from "@perps/hip4-react";
 
 const adapter = createHIP4Adapter({ testnet: true });
 
@@ -1550,7 +1474,7 @@ function App() {
 ### Fetching Events with Hooks
 
 ```tsx
-import { useEvents, useEventDetail } from "@perps/hip4/hooks";
+import { useEvents, useEventDetail } from "@perps/hip4-react";
 
 function EventList() {
   const { events, isLoading, error } = useEvents({
@@ -1581,7 +1505,7 @@ function EventDetail({ eventId }: { eventId: string }) {
 ### Subscribing to Live Prices
 
 ```tsx
-import { usePredictionPrice } from "@perps/hip4/hooks";
+import { usePredictionPrice } from "@perps/hip4-react";
 
 function PriceDisplay({ marketId }: { marketId: string }) {
   const { data, isLoading } = usePredictionPrice(marketId);
@@ -1603,7 +1527,7 @@ function PriceDisplay({ marketId }: { marketId: string }) {
 ### Subscribing to Order Book
 
 ```tsx
-import { usePredictionBook } from "@perps/hip4/hooks";
+import { usePredictionBook } from "@perps/hip4-react";
 
 function OrderBook({ marketId }: { marketId: string }) {
   const { data } = usePredictionBook(marketId);
@@ -1621,7 +1545,7 @@ function OrderBook({ marketId }: { marketId: string }) {
 ### Fetching Positions
 
 ```tsx
-import { usePredictionPositions } from "@perps/hip4/hooks";
+import { usePredictionPositions } from "@perps/hip4-react";
 
 function Positions({ address }: { address: string }) {
   const { data, isLoading } = usePredictionPositions(address);
