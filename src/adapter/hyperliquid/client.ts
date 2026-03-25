@@ -188,6 +188,16 @@ export class HIP4Client {
     return this.infoPost<HLFill[]>({ type: "userFills", user });
   }
 
+  /** Spot meta + asset contexts (includes markPx / oracle price for each spot asset) */
+  async fetchSpotAssetCtx(spotIndex: number): Promise<{ markPx: string; midPx: string } | null> {
+    const data = await this.infoPost<[unknown, Array<{ markPx?: string; midPx?: string; coin?: string }>]>({
+      type: "spotMetaAndAssetCtxs",
+    });
+    const ctx = data[1]?.[spotIndex];
+    if (!ctx?.markPx) return null;
+    return { markPx: ctx.markPx, midPx: ctx.midPx ?? "0" };
+  }
+
   /** Spot balances - HIP-4 prediction market positions live here (USDH, outcome tokens) */
   async fetchSpotClearinghouseState(
     user: string,

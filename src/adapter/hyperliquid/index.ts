@@ -51,7 +51,7 @@ export class HyperliquidHip4Adapter implements PredictionsAdapter {
     this.account = new HIP4AccountAdapter(this.client, eventAdapter, sideNameResolver);
     this.trading = new HIP4TradingAdapter(this.client, auth);
     this.auth = auth;
-    this.wallet = new HIP4WalletAdapter(this.client);
+    this.wallet = new HIP4WalletAdapter(this.client, auth);
   }
 
   private readonly _events: HIP4EventAdapter;

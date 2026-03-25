@@ -1,17 +1,23 @@
 // ---------------------------------------------------------------------------
 // HIP-4 Wallet Operations
 //
-// User-signed actions for fund management: transfers between spot/perp,
-// withdrawals, and USD sends. These use EIP-712 signing on the
-// HyperliquidSignTransaction domain, NOT L1 agent signing.
+// Fund management: transfers between spot/perp, withdrawals, USD sends,
+// and USDH spot buy/sell.
+//
+// Signing:
+//   - Transfers, withdrawals, sends: EIP-712 user signing (wallet signer)
+//   - USDH buy/sell: L1 agent signing (agent key via auth)
 //
 // Reference: @nktkas/hyperliquid — withdraw3, usdClassTransfer, usdSend
 // ---------------------------------------------------------------------------
 
+import type { HIP4Auth } from "./auth";
 import type { HIP4Client } from "./client";
-import type { HIP4Signer } from "./types";
+import type { HIP4Signer, HLOrderAction } from "./types";
 import {
+  signL1Action,
   signUserSignedAction,
+  sortOrderAction,
   USD_CLASS_TRANSFER_TYPES,
   USD_SEND_TYPES,
   WITHDRAW_TYPES,
@@ -27,6 +33,13 @@ export interface UsdClassTransferParams {
   /** true = spot → perp, false = perp → spot */
   toPerp: boolean;
 }
+
+/** USDH spot market index on Hyperliquid (from spotMeta universe) */
+export const USDH_SPOT_INDEX = 1338;
+/** USDH asset ID for order placement (10000 + spotMeta universe index) */
+export const USDH_ASSET_ID = 10000 + USDH_SPOT_INDEX;
+/** USDH spot pair name (for info endpoints / subscriptions) */
+export const USDH_SPOT_PAIR = "@1338";
 
 export interface WithdrawParams {
   /** Destination wallet address */
@@ -45,6 +58,10 @@ export interface UsdSendParams {
 export interface WalletActionResult {
   success: boolean;
   error?: string;
+  /** Filled size (spot orders only) */
+  filledSz?: string;
+  /** Average fill price (spot orders only) */
+  avgPx?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -56,6 +73,7 @@ export class HIP4WalletAdapter {
 
   constructor(
     private readonly client: HIP4Client,
+    private readonly auth: HIP4Auth,
   ) {}
 
   /**
@@ -101,6 +119,38 @@ export class HIP4WalletAdapter {
   }
 
   /**
+   * Buy USDH on the spot market. Uses L1 agent signing (requires auth).
+   * Amount is in USDH units.
+   */
+  async buyUsdh(amount: string): Promise<WalletActionResult> {
+    return this.executeSpotOrder(true, amount);
+  }
+
+  /**
+   * Sell USDH on the spot market. Uses L1 agent signing (requires auth).
+   * Amount is in USDH units.
+   */
+  async sellUsdh(amount: string): Promise<WalletActionResult> {
+    return this.executeSpotOrder(false, amount);
+  }
+
+  /**
+   * Transfer USDC from Perp account to Spot account.
+   * This is step 1 of the deposit flow (after bridging USDC to HL).
+   */
+  async transferToSpot(amount: string): Promise<WalletActionResult> {
+    return this.usdClassTransfer({ amount, toPerp: false });
+  }
+
+  /**
+   * Transfer USDC from Spot account to Perp account.
+   * This is step 2 of the withdraw flow (before withdraw3).
+   */
+  async transferToPerps(amount: string): Promise<WalletActionResult> {
+    return this.usdClassTransfer({ amount, toPerp: true });
+  }
+
+  /**
    * Transfer funds between Spot and Perp accounts.
    *
    * HIP-4 prediction markets use the Spot account. To fund trading:
@@ -143,6 +193,72 @@ export class HIP4WalletAdapter {
   // -------------------------------------------------------------------------
   // Internal
   // -------------------------------------------------------------------------
+
+  /** Place a spot market order for USDH using L1 agent signing. */
+  private async executeSpotOrder(isBuy: boolean, amount: string): Promise<WalletActionResult> {
+    const agentSigner = this.auth.getSigner();
+    if (!agentSigner) {
+      return { success: false, error: "Not authenticated. Call auth.initAuth() first." };
+    }
+
+    try {
+      // Fetch oracle/mark price — HL validates orders against this, not mid
+      const ctx = await this.client.fetchSpotAssetCtx(USDH_SPOT_INDEX);
+      const oracle = ctx ? parseFloat(ctx.markPx) : 0;
+      if (oracle <= 0) {
+        return { success: false, error: "Could not fetch USDH oracle price" };
+      }
+      // 10% from oracle — safely within HL's limit while ensuring fill
+      const price = isBuy
+        ? (oracle * 1.1).toFixed(5)
+        : (oracle * 0.9).toFixed(5);
+
+      const action: HLOrderAction = {
+        type: "order",
+        orders: [{
+          a: USDH_ASSET_ID,
+          b: isBuy,
+          p: price,
+          s: amount,
+          r: false,
+          t: { limit: { tif: "Ioc" } },
+        }],
+        grouping: "na",
+      };
+
+      const sortedAction = sortOrderAction(action);
+      const nonce = Date.now();
+      const signature = await signL1Action({
+        signer: agentSigner,
+        action: sortedAction,
+        nonce,
+        isTestnet: this.client.testnet,
+      });
+
+      const res = await this.client.placeOrder(sortedAction, nonce, signature, null);
+      if (res.status !== "ok" || !res.response) {
+        return { success: false, error: "Exchange returned non-ok status" };
+      }
+
+      const firstStatus = res.response.data.statuses[0];
+      if (!firstStatus) {
+        return { success: false, error: "No order status returned" };
+      }
+      if ("error" in firstStatus) {
+        return { success: false, error: firstStatus.error };
+      }
+
+      const filled = "filled" in firstStatus ? (firstStatus as { filled: { totalSz: string; avgPx: string } }).filled : undefined;
+      return {
+        success: true,
+        filledSz: filled?.totalSz,
+        avgPx: filled?.avgPx,
+      };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      return { success: false, error: message };
+    }
+  }
 
   private async executeUserSigned(
     type: string,

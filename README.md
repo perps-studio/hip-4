@@ -10,7 +10,7 @@ Zero-dependency TypeScript SDK for Hyperliquid HIP-4 prediction markets.
 
 ### What is this
 
-A typed adapter interface for HIP-4 prediction markets on Hyperliquid. Fetch events, stream real-time orderbook data, place and cancel orders, manage positions, transfer funds -- all client-side, zero runtime dependencies.
+A typed adapter interface for HIP-4 prediction markets on Hyperliquid. Fetch events, stream real-time orderbook data, place and cancel orders, manage USDH deposits and withdrawals, track positions -- all client-side, zero runtime dependencies.
 
 HIP-4 extends Hyperliquid's L1 with binary outcome markets. Each outcome has two sides (e.g. Yes/No or named alternatives like "Hypurr"/"Usain Bolt"), traded as probability tokens priced 0-1. This SDK wraps the HL REST + WebSocket API with HIP-4-specific coin naming, signing, and data mapping.
 
@@ -35,6 +35,7 @@ graph TD
     G --> I[signing.ts<br/>L1 agent signing + user-signed EIP-712]
     W --> I
     G --> H
+    W --> H
 
     C --> J[HL REST API<br/>/info + /exchange]
     C --> K[HL WebSocket<br/>l2Book, allMids, trades]
@@ -48,12 +49,12 @@ graph TD
 
 **Two signing methods** -- the SDK implements both Hyperliquid signing flows from scratch with zero dependencies:
 
-- **L1 agent signing** -- for orders and cancels. MessagePack serialize (key-order-sensitive) -> append nonce as BE u64 -> keccak-256 hash -> EIP-712 sign with `Agent` type (chainId 1337). Used by the trading adapter.
-- **User-signed EIP-712** -- for wallet operations (withdraw, transfer, send). Standard EIP-712 on the `HyperliquidSignTransaction` domain with `signatureChainId: 0x66eee`. Used by the wallet adapter.
+- **L1 agent signing** -- for orders, cancels, and USDH spot trades. MessagePack serialize (key-order-sensitive) -> append nonce as BE u64 -> keccak-256 hash -> EIP-712 sign with `Agent` type (chainId 1337). Used by the trading adapter and wallet adapter (USDH buy/sell).
+- **User-signed EIP-712** -- for fund transfers, withdrawals, and sends. Standard EIP-712 on the `HyperliquidSignTransaction` domain with `signatureChainId: 0x66eee`. Used by the wallet adapter. Requires the user's actual wallet as signer.
 
-**Outcome names** -- side names are resolved from `outcomeMeta.sideSpecs` (e.g. "Yes"/"No", "Hypurr"/"Usain Bolt") and cached permanently. All adapters share a single resolver so prices, positions, and events consistently display real names instead of generic "Side 0"/"Side 1".
+**Outcome names** -- side names are resolved from `outcomeMeta.sideSpecs` (e.g. "Yes"/"No", "Hypurr"/"Usain Bolt") and cached permanently. All adapters share a single resolver so prices, positions, and events consistently display real names.
 
-**Coin naming** -- `@<outcomeId>` for AMM price lookups, `#<outcomeId><sideIndex>` for tradeable instruments. Asset IDs: `100_000_000 + outcomeId * 10 + sideIndex`.
+**Coin naming** -- `@<outcomeId>` for AMM price lookups, `#<outcomeId><sideIndex>` for tradeable instruments. Asset IDs: `100_000_000 + outcomeId * 10 + sideIndex` for HIP-4 outcomes, `10_000 + spotIndex` for spot tokens (e.g. USDH).
 
 ### API
 
@@ -132,27 +133,37 @@ const result = await hip4.trading.placeOrder({
 await hip4.trading.cancelOrder({ marketId: "516", orderId: "12345", outcome: "#5160" });
 ```
 
-#### Wallet Operations
+#### Wallet
 
-Wallet operations use EIP-712 user signing (not agent signing) and must be signed by the user's actual wallet. Call `wallet.setSigner()` with a viem-compatible signer before use.
+The wallet adapter handles fund management. It uses two signers:
+
+- **User's wallet** (set via `setSigner`) for transfers and withdrawals (EIP-712 user signing)
+- **Agent key** (from `auth.initAuth`) for USDH spot buy/sell (L1 agent signing)
 
 ```typescript
-// Set the user's wallet as the signer (not the agent key)
+// Set the user's wallet for transfer/withdraw signing
 hip4.wallet.setSigner({
   address: userAddress,
   signTypedData: walletClient.signTypedData.bind(walletClient),
 });
 
-// Transfer USDC between Perp and Spot (HIP-4 uses Spot balances)
-await hip4.wallet.usdClassTransfer({ amount: "100", toPerp: false }); // Perp → Spot (fund predictions)
-await hip4.wallet.usdClassTransfer({ amount: "50", toPerp: true });   // Spot → Perp
+// Deposit flow: Perp → Spot → buy USDH
+await hip4.wallet.transferToSpot("100");    // move USDC from Perp to Spot (user-signed)
+await hip4.wallet.buyUsdh("100");           // buy USDH on spot market (agent-signed)
 
-// Withdraw to external address
-await hip4.wallet.withdraw({ destination: "0x...", amount: "100" });
+// Withdraw flow: sell USDH → Spot → Perp → external wallet
+await hip4.wallet.sellUsdh("50");           // sell USDH on spot market (agent-signed)
+await hip4.wallet.transferToPerps("50");    // move USDC from Spot to Perp (user-signed)
+await hip4.wallet.withdraw({               // withdraw to external address (user-signed)
+  destination: "0x...",
+  amount: "50",
+});
 
 // Send USDC to another HL address
-await hip4.wallet.usdSend({ destination: "0x...", amount: "50" });
+await hip4.wallet.usdSend({ destination: "0x...", amount: "25" });
 ```
+
+USDH spot orders price at oracle ± 10% using `Ioc` TIF, fetching the oracle from `spotMetaAndAssetCtxs`.
 
 #### React
 
@@ -164,10 +175,10 @@ import { useEvents, usePredictionBook, usePredictionPrice } from "@perps/hip4/ho
 ### Testing
 
 ```bash
-npm test          # 282 tests across 24 files
+npm test          # 289 tests across 24 files
 ```
 
-Coverage includes: keccak-256 against known vectors, msgpack encoding, action sorting, L1 action hash cross-validated against @nktkas/hyperliquid, viem + ethers signer acceptance, agent approval typed data construction, all adapter mapping logic, retry behavior, WebSocket reconnection and per-coin subscription dispatch, user-signed EIP-712 action signing (domain construction, message filtering, signatureChainId validation), wallet adapter operations (signer detection, viem wrapping, usdClassTransfer, withdraw, usdSend, error paths), side name resolution from outcomeMeta sideSpecs.
+Coverage includes: keccak-256 against known vectors, msgpack encoding, action sorting, L1 action hash cross-validated against @nktkas/hyperliquid, viem + ethers signer acceptance, agent approval typed data construction, all adapter mapping logic, retry behavior, WebSocket reconnection and per-coin subscription dispatch, user-signed EIP-712 action signing (domain construction, message filtering, signatureChainId validation), wallet adapter operations (signer detection, viem wrapping, USDH spot orders with oracle pricing, usdClassTransfer, withdraw, usdSend, error paths), side name resolution from outcomeMeta sideSpecs.
 
 ---
 
@@ -228,14 +239,18 @@ Market orders use `FrontendMarket` TIF with ceiling/floor pricing for best-execu
 
 #### `adapter.wallet` -- HIP4WalletAdapter
 
-| Method | Description |
-|--------|-------------|
-| `setSigner(signer)` | Set the user's wallet for signing. Auto-wraps viem-style objects. Throws on invalid signer |
-| `usdClassTransfer({ amount, toPerp })` | Transfer between Spot and Perp. `toPerp: false` = deposit into predictions |
-| `withdraw({ destination, amount })` | Withdraw USDC to external address (`withdraw3` action) |
-| `usdSend({ destination, amount })` | Send USDC to another HL address |
+| Method | Signing | Description |
+|--------|---------|-------------|
+| `setSigner(signer)` | -- | Set the user's wallet for EIP-712 operations. Auto-wraps viem-style objects |
+| `buyUsdh(amount)` | L1 agent | Buy USDH on spot market. Prices at oracle * 1.1, Ioc TIF |
+| `sellUsdh(amount)` | L1 agent | Sell USDH on spot market. Prices at oracle * 0.9, Ioc TIF |
+| `transferToSpot(amount)` | EIP-712 | Transfer USDC from Perp → Spot (deposit into predictions) |
+| `transferToPerps(amount)` | EIP-712 | Transfer USDC from Spot → Perp (withdraw from predictions) |
+| `usdClassTransfer({ amount, toPerp })` | EIP-712 | Generic Spot ↔ Perp transfer |
+| `withdraw({ destination, amount })` | EIP-712 | Withdraw USDC to external address (`withdraw3`) |
+| `usdSend({ destination, amount })` | EIP-712 | Send USDC to another HL address |
 
-All wallet methods return `{ success, error? }` and use EIP-712 user signing on the `HyperliquidSignTransaction` domain (`signatureChainId: 0x66eee`). The signer must be the user's actual wallet -- agent keys will be rejected by the exchange.
+All methods return `{ success, error?, filledSz?, avgPx? }`. USDH spot orders fetch the oracle price from `spotMetaAndAssetCtxs` and price within 10% to satisfy HL's oracle distance check. EIP-712 methods use `signatureChainId: 0x66eee` and require the user's actual wallet -- agent keys will be rejected.
 
 #### Agent Wallet Helpers
 
@@ -256,7 +271,7 @@ All wallet methods return `{ success, error? }` and use EIP-712 user signing on 
 
 ### Signing Internals
 
-#### L1 Agent Signing (orders, cancels)
+#### L1 Agent Signing (orders, cancels, USDH spot trades)
 
 Pipeline in `src/adapter/hyperliquid/signing.ts`:
 
@@ -269,7 +284,7 @@ Pipeline in `src/adapter/hyperliquid/signing.ts`:
 
 The msgpack encoder and keccak-256 are implemented inline (~350 lines). Hash output is cross-validated against `@nktkas/hyperliquid` in tests.
 
-#### User-Signed EIP-712 (wallet operations)
+#### User-Signed EIP-712 (transfers, withdrawals, sends)
 
 Used for `withdraw3`, `usdClassTransfer`, `usdSend`, and other wallet-level actions. The action is signed directly as EIP-712 typed data:
 
