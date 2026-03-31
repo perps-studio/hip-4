@@ -11,6 +11,7 @@
 // Reference: @nktkas/hyperliquid — withdraw3, usdClassTransfer, usdSend
 // ---------------------------------------------------------------------------
 
+import type { PredictionWalletAdapter, WalletActionResult } from "../types";
 import type { HIP4Auth } from "./auth";
 import type { HIP4Client } from "./client";
 import type { HIP4Signer, HLOrderAction } from "./types";
@@ -55,20 +56,13 @@ export interface UsdSendParams {
   amount: string;
 }
 
-export interface WalletActionResult {
-  success: boolean;
-  error?: string;
-  /** Filled size (spot orders only) */
-  filledSz?: string;
-  /** Average fill price (spot orders only) */
-  avgPx?: string;
-}
+export type { WalletActionResult } from "../types";
 
 // ---------------------------------------------------------------------------
 // HIP4WalletAdapter
 // ---------------------------------------------------------------------------
 
-export class HIP4WalletAdapter {
+export class HIP4WalletAdapter implements PredictionWalletAdapter {
   private signer: HIP4Signer | null = null;
 
   constructor(

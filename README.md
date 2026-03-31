@@ -14,8 +14,6 @@ A typed adapter interface for HIP-4 prediction markets on Hyperliquid. Fetch eve
 
 HIP-4 extends Hyperliquid's L1 with binary outcome markets. Each outcome has two sides (e.g. Yes/No or named alternatives like "Hypurr"/"Usain Bolt"), traded as probability tokens priced 0-1. This SDK wraps the HL REST + WebSocket API with HIP-4-specific coin naming, signing, and data mapping.
 
-React bindings (provider + hooks) are available separately via [@perps/hip4-react](https://github.com/perps-studio/hip4-react).
-
 ### Architecture
 
 ```mermaid
@@ -165,23 +163,7 @@ await hip4.wallet.withdraw({               // withdraw to external address (user
 await hip4.wallet.usdSend({ destination: "0x...", amount: "25" });
 ```
 
-USDH spot orders price at oracle ± 10% using `Ioc` TIF, fetching the oracle from `spotMetaAndAssetCtxs`.
-
-#### React
-
-React bindings are in a separate package:
-
-```bash
-npm install @perps/hip4-react
-```
-
-```tsx
-import { createHIP4Adapter } from "@perps/hip4";
-import { PredictionsAdapterProvider, usePredictionsAdapter } from "@perps/hip4-react";
-import { useEvents, usePredictionBook, usePredictionPrice } from "@perps/hip4-react";
-```
-
-See [@perps/hip4-react](https://github.com/perps-studio/hip4-react) for full documentation.
+USDH spot orders fetch the oracle/mark price from `spotMetaAndAssetCtxs` and price within ±10% using `Ioc` TIF. Returns `{ success, filledSz?, avgPx? }` so you can chain the filled amount into subsequent steps (e.g. transfer the exact USDC received from a sell).
 
 ### Testing
 
@@ -248,20 +230,20 @@ Market orders use `FrontendMarket` TIF with ceiling/floor pricing for best-execu
 | `getAuthStatus()` | `{ status: "disconnected" | "pending_approval" | "ready", address? }` |
 | `clearAuth()` | Reset to disconnected |
 
-#### `adapter.wallet` -- HIP4WalletAdapter
+#### `adapter.wallet` -- PredictionWalletAdapter
 
 | Method | Signing | Description |
 |--------|---------|-------------|
 | `setSigner(signer)` | -- | Set the user's wallet for EIP-712 operations. Auto-wraps viem-style objects |
-| `buyUsdh(amount)` | L1 agent | Buy USDH on spot market. Prices at oracle * 1.1, Ioc TIF |
-| `sellUsdh(amount)` | L1 agent | Sell USDH on spot market. Prices at oracle * 0.9, Ioc TIF |
+| `buyUsdh(amount)` | L1 agent | Buy USDH on spot market. Prices at oracle ±10%, Ioc TIF |
+| `sellUsdh(amount)` | L1 agent | Sell USDH on spot market. Prices at oracle ±10%, Ioc TIF |
 | `transferToSpot(amount)` | EIP-712 | Transfer USDC from Perp → Spot (deposit into predictions) |
 | `transferToPerps(amount)` | EIP-712 | Transfer USDC from Spot → Perp (withdraw from predictions) |
 | `usdClassTransfer({ amount, toPerp })` | EIP-712 | Generic Spot ↔ Perp transfer |
 | `withdraw({ destination, amount })` | EIP-712 | Withdraw USDC to external address (`withdraw3`) |
 | `usdSend({ destination, amount })` | EIP-712 | Send USDC to another HL address |
 
-All methods return `{ success, error?, filledSz?, avgPx? }`. USDH spot orders fetch the oracle price from `spotMetaAndAssetCtxs` and price within 10% to satisfy HL's oracle distance check. EIP-712 methods use `signatureChainId: 0x66eee` and require the user's actual wallet -- agent keys will be rejected.
+All methods return `{ success, error?, filledSz?, avgPx? }`. USDH spot orders fetch the oracle/mark price from `spotMetaAndAssetCtxs` and price within 10% to satisfy HL's oracle distance validation. Fill data (`filledSz`, `avgPx`) is returned for spot orders so downstream flows can use the actual filled amount. EIP-712 methods use `signatureChainId: 0x66eee` and require the user's actual wallet -- agent keys will be rejected.
 
 #### Agent Wallet Helpers
 

@@ -31,6 +31,7 @@ export interface PredictionsAdapter {
   readonly account: PredictionAccountAdapter;
   readonly trading: PredictionTradingAdapter;
   readonly auth: PredictionAuthAdapter;
+  readonly wallet: PredictionWalletAdapter;
 
   /** Initialize connections and internal state. Must be called before use. */
   initialize(): Promise<void>;
@@ -125,4 +126,28 @@ export interface PredictionAuthAdapter {
   getAuthStatus(): PredictionAuthState;
   /** Clear stored auth credentials and reset state to disconnected. */
   clearAuth(): void;
+}
+
+export interface WalletActionResult {
+  success: boolean;
+  error?: string;
+  filledSz?: string;
+  avgPx?: string;
+}
+
+export interface PredictionWalletAdapter {
+  /** Set the user's wallet signer for EIP-712 operations (transfers, withdrawals). */
+  setSigner(signer: { address: string; signTypedData: (...args: unknown[]) => Promise<string> } | unknown): void;
+  /** Buy USDH on the spot market. Uses L1 agent signing. */
+  buyUsdh(amount: string): Promise<WalletActionResult>;
+  /** Sell USDH on the spot market. Uses L1 agent signing. */
+  sellUsdh(amount: string): Promise<WalletActionResult>;
+  /** Transfer USDC from Perp to Spot account. */
+  transferToSpot(amount: string): Promise<WalletActionResult>;
+  /** Transfer USDC from Spot to Perp account. */
+  transferToPerps(amount: string): Promise<WalletActionResult>;
+  /** Withdraw USDC to an external address. */
+  withdraw(params: { destination: string; amount: string }): Promise<WalletActionResult>;
+  /** Send USDC to another Hyperliquid address. */
+  usdSend(params: { destination: string; amount: string }): Promise<WalletActionResult>;
 }
