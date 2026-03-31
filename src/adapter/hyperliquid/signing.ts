@@ -401,7 +401,6 @@ function hexToBytes(hex: string): Uint8Array {
 /**
  * Strip trailing zeros from a decimal string.
  * "0.5000" → "0.5", "10.00" → "10", "3" → "3" (no-op if no decimal point).
- * Matches @nktkas/hyperliquid formatDecimal behavior.
  */
 function formatDecimal(numStr: string): string {
   // Handle scientific notation (e.g. "1e-5" → "0.00001")
@@ -587,8 +586,6 @@ export async function signL1Action(params: {
 // Used for wallet-level operations: withdraw, usdClassTransfer, usdSend,
 // approveAgent, approveBuilderFee, etc. NOT used for orders/cancels (those
 // always use L1 agent signing above).
-//
-// Reference: @nktkas/hyperliquid signing/mod.ts — signUserSignedAction
 // ---------------------------------------------------------------------------
 
 /** EIP-712 types for withdraw3. */

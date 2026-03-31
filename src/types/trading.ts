@@ -11,7 +11,7 @@ export interface PredictionOrderParams {
   expiration?: string;
 }
 
-/** Result returned by placeOrder. Never throws -- check success/error fields. */
+/** Result returned by placeOrder. Never throws. Check success/error fields. */
 export interface PredictionOrderResult {
   success: boolean;
   orderId?: string;

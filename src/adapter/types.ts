@@ -57,7 +57,7 @@ export interface PredictionEventAdapter {
 export interface PredictionMarketDataAdapter {
   /** Fetch the order book for a market. marketId is the outcome ID as string; sideIndex defaults to 0 (Yes). */
   fetchOrderBook(marketId: string, sideIndex?: number): Promise<PredictionOrderBook>;
-  /** Fetch the current price for both sides of a market. Names are generic ("Side 0"/"Side 1") -- use event.markets[].outcomes[].name for real names. */
+  /** Fetch the current price for both sides of a market. Names are generic ("Side 0"/"Side 1") - use event.markets[].outcomes[].name for real names. */
   fetchPrice(marketId: string): Promise<PredictionPrice>;
   /** Fetch recent trades for a market. */
   fetchTrades(marketId: string, limit?: number): Promise<PredictionTrade[]>;
@@ -110,7 +110,7 @@ export interface PredictionAccountAdapter {
 }
 
 export interface PredictionTradingAdapter {
-  /** Place a market or limit order. Returns { success, orderId?, status?, shares?, error? } -- never throws. */
+  /** Place a market or limit order. Returns { success, orderId?, status?, shares?, error? }. Never throws. */
   placeOrder(params: PredictionOrderParams): Promise<PredictionOrderResult>;
   /** Cancel a resting order. Throws on failure. */
   cancelOrder(params: PredictionCancelParams): Promise<void>;

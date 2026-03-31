@@ -7,8 +7,6 @@
 // Signing:
 //   - Transfers, withdrawals, sends: EIP-712 user signing (wallet signer)
 //   - USDH buy/sell: L1 agent signing (agent key via auth)
-//
-// Reference: @nktkas/hyperliquid — withdraw3, usdClassTransfer, usdSend
 // ---------------------------------------------------------------------------
 
 import type { PredictionWalletAdapter, WalletActionResult } from "../types";

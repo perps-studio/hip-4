@@ -1,7 +1,7 @@
 {
   "name": "@perps/hip4",
   "version": "1.1.1",
-  "description": "Plug & play SDK for Hyperliquid HIP-4 prediction markets.",
+  "description": "TypeScript SDK for Hyperliquid HIP-4 prediction markets",
   "repository": {
     "type": "git",
     "url": "https://github.com/perps-studio/hip4.git"

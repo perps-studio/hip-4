@@ -210,7 +210,7 @@ describe("sortCancelAction", () => {
 });
 
 // ---------------------------------------------------------------------------
-// L1 Action Hash - cross-validated against @nktkas/hyperliquid
+// L1 Action Hash
 // ---------------------------------------------------------------------------
 
 describe("createL1ActionHash", () => {
