@@ -29,7 +29,7 @@
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Package name**         | `@perps/hip4`                                                                                                                                                                                                                                                                                             |
 | **Version**              | `1.1.0`                                                                                                                                                                                                                                                                                                   |
-| **License**              | BSL 1.1 (Business Source License) - converts to MIT on 2028-03-21. Production use requires a commercial license from Dennis Furrer (dennis@perps.studio). Evaluation, testing, non-production development, academic use, and personal non-commercial projects are permitted without a separate agreement. |
+| **License**              | BSL 1.1 (Business Source License) - converts to MIT on 2028-04-01. Production use requires a commercial license from Perps Studio (support@perps.studio). Evaluation, testing, non-production development, academic use, and personal non-commercial projects are permitted without a separate agreement. |
 | **Author**               | Dennis Furrer                                                                                                                                                                                                                                                                                             |
 | **Runtime dependencies** | Zero. The package has no `dependencies` at all.                                                                                                                                                                                                                                                           |
 | **Peer dependencies**    | None. React bindings are in `@perps/hip4-react`.                                                                                                                                                                                                                                                          |
@@ -39,10 +39,10 @@
 
 ### Entry Points
 
-| Import path         | Resolves to          | Contents                    |
-| ------------------- | -------------------- | --------------------------- |
-| `@perps/hip4`       | `src/index.ts`       | Adapter, types, wallet      |
-| `@perps/hip4/types` | `src/types/index.ts` | Pure type definitions only  |
+| Import path         | Resolves to          | Contents                   |
+| ------------------- | -------------------- | -------------------------- |
+| `@perps/hip4`       | `src/index.ts`       | Adapter, types, wallet     |
+| `@perps/hip4/types` | `src/types/index.ts` | Pure type definitions only |
 
 ### Architecture
 
@@ -77,13 +77,13 @@ The factory creates a `HyperliquidHip4Adapter` which composes six sub-adapters a
 | `normalizeSignature`          | Utility function |
 | `HIP4Signer`                  | Type (interface) |
 | `HLSignature`                 | Type (interface) |
-| `HIP4WalletAdapter`          | Class            |
-| `USDH_ASSET_ID`              | Constant         |
-| `USDH_SPOT_PAIR`             | Constant         |
-| `UsdClassTransferParams`     | Type             |
-| `WithdrawParams`             | Type             |
-| `UsdSendParams`              | Type             |
-| `WalletActionResult`         | Type             |
+| `HIP4WalletAdapter`           | Class            |
+| `USDH_ASSET_ID`               | Constant         |
+| `USDH_SPOT_PAIR`              | Constant         |
+| `UsdClassTransferParams`      | Type             |
+| `WithdrawParams`              | Type             |
+| `UsdSendParams`               | Type             |
+| `WalletActionResult`          | Type             |
 
 ---
 
