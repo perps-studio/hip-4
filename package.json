@@ -1,7 +1,15 @@
 {
   "name": "@perps/hip4",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Plug & play SDK for Hyperliquid HIP-4 prediction markets.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/perps-studio/hip4.git"
+  },
+  "homepage": "https://github.com/perps-studio/hip4#readme",
+  "bugs": {
+    "url": "https://github.com/perps-studio/hip4/issues"
+  },
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
