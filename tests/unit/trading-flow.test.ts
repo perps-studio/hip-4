@@ -122,6 +122,7 @@ describe("placeOrder full flow", () => {
 
     const action = (client.placeOrder as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(action.orders[0].p).toBe("0.55");
+    // Size "20" has no trailing zeros to strip
     expect(action.orders[0].s).toBe("20");
     expect(action.orders[0].t).toEqual({ limit: { tif: "Gtc" } });
   });
@@ -202,7 +203,7 @@ describe("placeOrder full flow", () => {
       side: "buy",
       type: "limit",
       price: "0.5",
-      amount: "10",
+      amount: "20",
     });
 
     expect(result.success).toBe(false);
@@ -284,13 +285,14 @@ describe("resolveAssetId edge cases", () => {
   });
 
   async function getAssetId(outcome: string): Promise<number> {
+    (client.placeOrder as ReturnType<typeof vi.fn>).mockClear();
     await adapter.placeOrder({
       marketId: "1758",
       outcome,
       side: "buy",
       type: "limit",
       price: "0.5",
-      amount: "10",
+      amount: "20",
     });
     const call = (client.placeOrder as ReturnType<typeof vi.fn>).mock.calls.at(-1);
     return call![0].orders[0].a;
@@ -324,7 +326,7 @@ describe("resolveAssetId edge cases", () => {
         side: "buy",
         type: "limit",
         price: "0.5",
-        amount: "10",
+        amount: "20",
       }),
     ).rejects.toThrow("Invalid sideIndex");
   });
@@ -337,7 +339,7 @@ describe("resolveAssetId edge cases", () => {
         side: "buy",
         type: "limit",
         price: "0.5",
-        amount: "10",
+        amount: "20",
       }),
     ).rejects.toThrow("Invalid sideIndex");
   });

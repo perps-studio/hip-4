@@ -16,6 +16,7 @@ import type { PredictionTradingAdapter } from "../types";
 import type { HIP4Auth } from "./auth";
 import type { HIP4Client } from "./client";
 import { sideAssetId } from "./client";
+import { formatPrice, stripZeros, getMinShares, MIN_NOTIONAL } from "./pricing";
 import { signL1Action, sortCancelAction, sortOrderAction } from "./signing";
 import {
   type HLCancelAction,
@@ -27,26 +28,6 @@ import {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Format price to HL precision rules (magnitude-based decimal places).
- * Prediction markets are always < $1, so they get 4 decimal places.
- * Trailing zeros are stripped per HL wire format requirements.
- */
-function formatPrice(price: number): string {
-  if (price <= 0) return "0";
-  let formatted: string;
-  if (price >= 1000) {
-    formatted = Math.round(price).toString();
-  } else if (price >= 10) {
-    formatted = price.toFixed(1);
-  } else if (price >= 1) {
-    formatted = price.toFixed(2);
-  } else {
-    formatted = price.toFixed(4);
-  }
-  return formatted.replace(/\.?0+$/, "");
-}
 
 function mapTif(
   type: PredictionOrderParams["type"],
@@ -156,6 +137,7 @@ export class HIP4TradingAdapter implements PredictionTradingAdapter {
 
     const assetId = resolveAssetId(params.marketId, params.outcome);
     const isBuy = params.side === "buy";
+    const amount = stripZeros(params.amount);
 
     // Resolve price: market orders use FrontendMarket TIF with best-execution pricing
     let price: string;
@@ -169,27 +151,59 @@ export class HIP4TradingAdapter implements PredictionTradingAdapter {
         `Market order: side=${isBuy ? "buy" : "sell"}, price=${price} (FrontendMarket best-execution)`,
       );
     } else {
-      // Limit order - format the provided price
+      // Limit order - format the provided price with tick alignment
       const rawPrice = parseFloat(params.price ?? "0");
       price = formatPrice(rawPrice);
       this.client.log("debug", `Limit order: price=${price}`);
+
+      // Pre-submission validation for limit orders
+      const numericPrice = parseFloat(price);
+      const numericSize = parseFloat(amount);
+
+      // Minimum shares check (when mark price provided)
+      if (params.markPx !== undefined) {
+        const minShares = getMinShares(params.markPx);
+        if (numericSize < minShares) {
+          return {
+            success: false,
+            error: `Size ${numericSize} below minimum ${minShares} shares (markPx=${params.markPx})`,
+          };
+        }
+      }
+
+      // Notional check
+      const notional = numericPrice * numericSize;
+      if (notional < MIN_NOTIONAL) {
+        return {
+          success: false,
+          error: `Notional $${notional.toFixed(2)} below minimum $${MIN_NOTIONAL}`,
+        };
+      }
     }
 
     const orderWire: HLOrderWire = {
       a: assetId,
       b: isBuy,
       p: price,
-      s: params.amount,
+      s: amount,
       r: false,
       t: mapTif(params.type, params.timeInForce),
     };
 
     // Canonical key order: type, orders, grouping
-    const action: HLOrderAction = {
+    const action: HLOrderAction & { builder?: { b: string; f: number } } = {
       type: "order",
       orders: [orderWire],
       grouping: "na",
     };
+
+    // Builder fee support
+    if (params.builderFee && params.builderFee > 0 && params.builderAddress) {
+      action.builder = {
+        b: params.builderAddress.toLowerCase(),
+        f: params.builderFee,
+      };
+    }
 
     // Sort action keys into canonical order for signing
     const sortedAction = sortOrderAction(action);

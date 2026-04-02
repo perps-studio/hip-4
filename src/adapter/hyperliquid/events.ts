@@ -14,9 +14,18 @@ import type {
   PredictionMarket,
   PredictionOutcome,
 } from "../../types/event";
+import type {
+  HIP4Market,
+  FetchMarketsParams,
+  MarketType,
+  MarketsByType,
+  MarketsByQuestion,
+  MultiOutcomeMarket,
+} from "../../types/hip4-market";
 import type { PredictionEventAdapter } from "../types";
 import type { HIP4Client } from "./client";
 import { sideCoin } from "./client";
+import { classifyAllOutcomes } from "./market-classification";
 import type { HLOutcome, HLOutcomeMeta, HLQuestion } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -159,6 +168,7 @@ export type SideNameResolver = (outcomeId: number) => [string, string] | null;
 
 export class HIP4EventAdapter implements PredictionEventAdapter {
   private cache: { events: PredictionEvent[]; timestamp: number } | null = null;
+  private metaCache: { meta: HLOutcomeMeta; mids: Record<string, string>; markets: HIP4Market[]; timestamp: number } | null = null;
   private static readonly CACHE_TTL_MS = 30_000;
 
   /** Side names from outcomeMeta. Populated once, never cleared (sideSpecs don't change). */
@@ -233,6 +243,72 @@ export class HIP4EventAdapter implements PredictionEventAdapter {
   async fetchCategories(): Promise<PredictionCategory[]> {
     return CATEGORIES;
   }
+
+  // -------------------------------------------------------------------------
+  // fetchMarkets  - typed HIP4Market discovery
+  // -------------------------------------------------------------------------
+
+  /**
+   * Fetch and classify all HIP-4 markets.
+   *
+   * Supports optional type filtering, groupBy, limit, and offset.
+   * Results are cached for CACHE_TTL_MS alongside the events cache.
+   */
+  async fetchMarkets(params?: FetchMarketsParams): Promise<HIP4Market[] | MarketsByType | MarketsByQuestion>;
+  async fetchMarkets(params: FetchMarketsParams = {}): Promise<HIP4Market[] | MarketsByType | MarketsByQuestion> {
+    const allMarkets = await this.loadMarkets();
+
+    // Filter by type
+    let filtered = params.type
+      ? allMarkets.filter((m) => m.type === params.type)
+      : allMarkets;
+
+    // groupBy
+    if (params.groupBy === "type") {
+      const grouped: MarketsByType = {};
+      for (const m of filtered) {
+        (grouped[m.type] ??= []).push(m);
+      }
+      return grouped;
+    }
+
+    if (params.groupBy === "question") {
+      const grouped: MarketsByQuestion = {};
+      for (const m of filtered) {
+        const key = m.type === "multiOutcome" ? String((m as MultiOutcomeMarket).questionId) : "standalone";
+        (grouped[key] ??= []).push(m);
+      }
+      return grouped;
+    }
+
+    // Pagination
+    const offset = params.offset ?? 0;
+    const limit = params.limit ?? filtered.length;
+    return filtered.slice(offset, offset + limit);
+  }
+
+  private async loadMarkets(): Promise<HIP4Market[]> {
+    const now = Date.now();
+    if (this.metaCache && now - this.metaCache.timestamp < HIP4EventAdapter.CACHE_TTL_MS) {
+      return this.metaCache.markets;
+    }
+
+    const [meta, mids] = await Promise.all([
+      this.client.fetchOutcomeMeta(),
+      this.client.fetchAllMids().catch(() => ({}) as Record<string, string>),
+    ]);
+
+    this.populateSideNames(meta);
+
+    const markets = classifyAllOutcomes(meta.outcomes, meta.questions);
+
+    this.metaCache = { meta, mids, markets, timestamp: now };
+    return markets;
+  }
+
+  // -------------------------------------------------------------------------
+  // loadEvents  - legacy PredictionEvent API
+  // -------------------------------------------------------------------------
 
   private async loadEvents(): Promise<PredictionEvent[]> {
     const now = Date.now();
