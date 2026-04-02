@@ -9,6 +9,21 @@ export interface PredictionOrderParams {
   amount: string;
   timeInForce?: "GTC" | "GTD" | "FOK" | "FAK";
   expiration?: string;
+  /**
+   * Mark price of the coin (0-1), used for minimum notional validation.
+   * When provided, getMinShares(markPx) is enforced before submission.
+   */
+  markPx?: number;
+  /**
+   * Builder address for referral fees.
+   * Will be lowercased  - checksummed addresses are accepted.
+   */
+  builderAddress?: string;
+  /**
+   * Builder fee in tenths of a basis point.
+   * 0 = no fee. 100 = 0.1%. 1000 = 1.0% (maximum).
+   */
+  builderFee?: number;
 }
 
 /** Result returned by placeOrder. Never throws. Check success/error fields. */

@@ -17,6 +17,12 @@ import type {
   PredictionOrderResult,
   PredictionCancelParams,
 } from "../types/trading";
+import type {
+  HIP4Market,
+  FetchMarketsParams,
+  MarketsByType,
+  MarketsByQuestion,
+} from "../types/hip4-market";
 
 /** Callback returned by subscribe methods; call it to unsubscribe. */
 export type Unsubscribe = () => void;
@@ -52,6 +58,8 @@ export interface PredictionEventAdapter {
   fetchEvent(eventId: string): Promise<PredictionEvent>;
   /** List available categories (e.g. "custom", "recurring"). */
   fetchCategories(): Promise<PredictionCategory[]>;
+  /** Fetch typed HIP-4 markets with optional type filtering, grouping, and pagination. */
+  fetchMarkets(params?: FetchMarketsParams): Promise<HIP4Market[] | MarketsByType | MarketsByQuestion>;
 }
 
 export interface PredictionMarketDataAdapter {

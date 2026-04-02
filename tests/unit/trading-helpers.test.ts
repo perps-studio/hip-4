@@ -86,15 +86,19 @@ describe("formatPrice (via limit orders)", () => {
     await setupAuth(auth);
   });
 
-  /** Helper to extract the formatted price from the order wire passed to client.placeOrder */
-  async function getOrderPrice(rawPrice: string): Promise<string> {
+  /**
+   * Helper to extract the formatted price from the order wire passed to client.placeOrder.
+   * Uses a large amount to ensure notional check passes for all prices.
+   */
+  async function getOrderPrice(rawPrice: string, amount = "200"): Promise<string> {
+    (client.placeOrder as ReturnType<typeof vi.fn>).mockClear();
     await adapter.placeOrder({
       marketId: "1758",
       outcome: "Yes",
       side: "buy",
       type: "limit",
       price: rawPrice,
-      amount: "10",
+      amount,
     });
     const call = (client.placeOrder as ReturnType<typeof vi.fn>).mock.calls.at(
       -1,
@@ -103,8 +107,18 @@ describe("formatPrice (via limit orders)", () => {
     return action.orders[0].p;
   }
 
-  it("formats 0 as '0'", async () => {
-    expect(await getOrderPrice("0")).toBe("0");
+  it("formats 0 as '0' (rejected by notional check before reaching exchange)", async () => {
+    const result = await adapter.placeOrder({
+      marketId: "1758",
+      outcome: "Yes",
+      side: "buy",
+      type: "limit",
+      price: "0",
+      amount: "200",
+    });
+    // price=0, notional=0 → rejected before reaching exchange
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/notional/i);
   });
 
   it("formats 0.648 as '0.648'", async () => {
@@ -115,28 +129,38 @@ describe("formatPrice (via limit orders)", () => {
     expect(await getOrderPrice("0.5")).toBe("0.5");
   });
 
-  it("formats 0.0001 as '0.0001'", async () => {
-    expect(await getOrderPrice("0.0001")).toBe("0.0001");
+  it("formats 0.0001 as '0.0001' (rejected by notional check)", async () => {
+    // 0.0001 * 200 = 0.02 < 10 → rejected
+    const result = await adapter.placeOrder({
+      marketId: "1758",
+      outcome: "Yes",
+      side: "buy",
+      type: "limit",
+      price: "0.0001",
+      amount: "200",
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/notional/i);
   });
 
   it("formats 0.10 as '0.1' (trailing zero removed)", async () => {
     expect(await getOrderPrice("0.10")).toBe("0.1");
   });
 
-  it("formats 1234 as '1234' (>= 1000 rounds to integer)", async () => {
+  it("formats 1234 as '1234'", async () => {
     expect(await getOrderPrice("1234")).toBe("1234");
   });
 
-  it("formats 45.67 as '45.7' (10-999 range, 1 decimal)", async () => {
-    expect(await getOrderPrice("45.67")).toBe("45.7");
+  it("formats 45.67 as '45.67' (5-sig-fig tick alignment)", async () => {
+    expect(await getOrderPrice("45.67")).toBe("45.67");
   });
 
-  it("formats 5.123 as '5.12' (1-9 range, 2 decimals)", async () => {
-    expect(await getOrderPrice("5.123")).toBe("5.12");
+  it("formats 5.123 as '5.123' (5-sig-fig tick alignment)", async () => {
+    expect(await getOrderPrice("5.123")).toBe("5.123");
   });
 
-  it("formats 999.99 as '1000' (rounds up across magnitude boundary)", async () => {
-    expect(await getOrderPrice("999.99")).toBe("1000");
+  it("formats 999.99 as '999.99' (5-sig-fig tick, no rounding needed)", async () => {
+    expect(await getOrderPrice("999.99")).toBe("999.99");
   });
 });
 
@@ -160,13 +184,14 @@ describe("resolveAssetId (via order wire)", () => {
     marketId: string,
     outcome: string,
   ): Promise<number> {
+    (client.placeOrder as ReturnType<typeof vi.fn>).mockClear();
     await adapter.placeOrder({
       marketId,
       outcome,
       side: "buy",
       type: "limit",
       price: "0.5",
-      amount: "10",
+      amount: "20",
     });
     const call = (client.placeOrder as ReturnType<typeof vi.fn>).mock.calls.at(
       -1,
@@ -228,7 +253,7 @@ describe("mapTif (via order wire)", () => {
       side: "buy",
       type,
       price: type === "limit" ? "0.5" : undefined,
-      amount: "10",
+      amount: "20",
       timeInForce,
     });
     const call = (client.placeOrder as ReturnType<typeof vi.fn>).mock.calls.at(
@@ -348,7 +373,7 @@ describe("interpretStatus (via placeOrder result)", () => {
       side: "buy",
       type: "limit",
       price: "0.5",
-      amount: "10",
+      amount: "20",
     });
   }
 
