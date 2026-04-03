@@ -171,8 +171,12 @@ export class HIP4TradingAdapter implements PredictionTradingAdapter {
         }
       }
 
-      // Notional check
-      const notional = numericPrice * numericSize;
+      // Notional check: exchange uses size × min(markPx, 1 - markPx) >= 10.
+      // When markPx is available, use the exchange formula. Otherwise fall back
+      // to price × size (stricter, but won't let through invalid orders).
+      const notional = params.markPx !== undefined
+        ? numericSize * Math.min(params.markPx, 1 - params.markPx)
+        : numericPrice * numericSize;
       if (notional < MIN_NOTIONAL) {
         return {
           success: false,

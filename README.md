@@ -1,12 +1,22 @@
-# @perps/hip4
+<h1 align="center">@perps/hip4</h1>
 
-TypeScript SDK for HIP-4 prediction markets on Hyperliquid. Zero runtime dependencies.
+<p align="center">
+  <a href="https://www.npmjs.com/package/@perps/hip4"><img src="https://img.shields.io/npm/v/@perps/hip4.svg" alt="npm version" /></a>
+  <img src="https://img.shields.io/badge/dependencies-0-brightgreen" alt="zero dependencies" />
+  <img src="https://img.shields.io/npm/l/@perps/hip4" alt="license" />
+</p>
+
+---
+
+TypeScript SDK for Hyperliquid HIP-4 prediction markets. Zero runtime dependencies.
+
+## Built for developers
+
+The SDK is structured around a single adapter with typed sub-modules for each domain - events, market data, account state, trading, wallet, and auth. Everything returns typed responses, WebSocket subscriptions return unsubscribe functions, and all signing (L1 agent + EIP-712) is handled internally with no external crypto dependencies.
 
 ```bash
 pnpm add @perps/hip4
 ```
-
-## Setup
 
 ```typescript
 import { createHIP4Adapter } from "@perps/hip4";
@@ -15,104 +25,79 @@ const hip4 = createHIP4Adapter({ testnet: true });
 await hip4.initialize();
 ```
 
-## Usage
+## Examples
 
-### Events
+- [`auth-eoa.ts`](examples/auth-eoa.ts) - Agent key approval and auth setup
+- [`get-all-markets.ts`](examples/get-all-markets.ts) - Fetch all markets grouped by type
+- [`get-multi-outcome.ts`](examples/get-multi-outcome.ts) - Multi-outcome markets with live prices
+- [`get-recurring-markets.ts`](examples/get-recurring-markets.ts) - Recurring markets with expiry countdowns
+- [`place-limit-order.ts`](examples/place-limit-order.ts) - Limit order with price validation
+- [`place-market-order.ts`](examples/place-market-order.ts) - Market order with FrontendMarket TIF
+- [`stream-prices.ts`](examples/stream-prices.ts) - Stream live prices via WebSocket
 
-```typescript
-const events = await hip4.events.fetchEvents({ active: true });
-const event = await hip4.events.fetchEvent("q1");
-const categories = await hip4.events.fetchCategories();
-```
+## API
 
-### Market Data
+### `hip4.events`
 
-```typescript
-const book = await hip4.marketData.fetchOrderBook("516", 0);
-const price = await hip4.marketData.fetchPrice("516");
-const trades = await hip4.marketData.fetchTrades("516", 20);
-const candles = await hip4.marketData.fetchCandles("516", "1h");
+| Method | Description |
+|--------|-------------|
+| `fetchEvents(params?)` | List events. Filters: `category`, `active`, `limit`, `offset`, `query` |
+| `fetchEvent(eventId)` | Single event by ID |
+| `fetchCategories()` | Available categories |
+| `fetchMarkets(params?)` | Typed HIP-4 markets with optional grouping by type or question |
 
-// WebSocket
-const unsub = hip4.marketData.subscribeOrderBook("516", (book) => { /* ... */ });
-const unsub2 = hip4.marketData.subscribePrice("516", (price) => { /* ... */ });
-const unsub3 = hip4.marketData.subscribeTrades("516", (trade) => { /* ... */ });
-```
+### `hip4.marketData`
 
-### Account
+| Method | Description |
+|--------|-------------|
+| `fetchOrderBook(marketId, sideIndex?)` | L2 snapshot |
+| `fetchPrice(marketId)` | Both sides, 5s cache |
+| `fetchTrades(marketId, limit?)` | Recent trades |
+| `fetchCandles(marketId, interval?, start?, end?)` | OHLCV candles |
+| `subscribeOrderBook(marketId, cb)` | Real-time L2 book |
+| `subscribePrice(marketId, cb)` | Real-time prices |
+| `subscribeTrades(marketId, cb)` | Real-time trades |
 
-```typescript
-const positions = await hip4.account.fetchPositions(address);
-const activity = await hip4.account.fetchActivity(address);
-const balances = await hip4.account.fetchBalance(address);
-const orders = await hip4.account.fetchOpenOrders(address);
+### `hip4.account`
 
-const unsub = hip4.account.subscribePositions(address, (positions) => { /* ... */ });
-```
+| Method | Description |
+|--------|-------------|
+| `fetchPositions(address)` | Outcome positions with resolved side names |
+| `fetchActivity(address)` | Fills, last 30 days |
+| `fetchBalance(address)` | Spot balances |
+| `fetchOpenOrders(address)` | Resting orders |
+| `subscribePositions(address, cb)` | Polling at 10s |
 
-### Auth
+### `hip4.trading`
 
-Approve an ephemeral agent key, then all subsequent trades are signed without wallet popups.
+| Method | Description |
+|--------|-------------|
+| `placeOrder(params)` | Place market or limit order. Returns `{ success, orderId?, error? }` |
+| `cancelOrder(params)` | Cancel a resting order |
 
-```typescript
-import { getAgentApprovalTypedData, submitAgentApproval } from "@perps/hip4";
-import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+### `hip4.wallet`
 
-const agentKey = generatePrivateKey();
-const agent = privateKeyToAccount(agentKey);
-const typedData = getAgentApprovalTypedData(agent.address, "My App", Date.now(), false);
-const sig = await walletClient.signTypedData(typedData);
-await submitAgentApproval(sig, agent.address, "My App", Date.now(), false);
-await hip4.auth.initAuth(userAddress, agent);
-```
+| Method | Signing | Description |
+|--------|---------|-------------|
+| `setSigner(signer)` | - | Set user wallet for EIP-712 ops |
+| `buyUsdh(amount)` | L1 agent | Buy USDH on spot |
+| `sellUsdh(amount)` | L1 agent | Sell USDH on spot |
+| `transferToSpot(amount)` | EIP-712 | Perp -> Spot |
+| `transferToPerps(amount)` | EIP-712 | Spot -> Perp |
+| `withdraw({ destination, amount })` | EIP-712 | Withdraw to external address |
+| `usdSend({ destination, amount })` | EIP-712 | Send to another HL address |
 
-### Trading
+### `hip4.auth`
 
-```typescript
-const result = await hip4.trading.placeOrder({
-  marketId: "516",
-  outcome: "#5160",
-  side: "buy",
-  type: "limit",
-  price: "0.65",
-  amount: "100",
-});
-
-await hip4.trading.cancelOrder({ marketId: "516", orderId: "12345", outcome: "#5160" });
-```
-
-Market orders use `FrontendMarket` TIF.
-
-### Wallet
-
-Two signers: user wallet (via `setSigner`) for EIP-712 transfers/withdrawals, agent key for USDH spot trades.
-
-```typescript
-hip4.wallet.setSigner({
-  address: userAddress,
-  signTypedData: walletClient.signTypedData.bind(walletClient),
-});
-
-// Deposit: Perp -> Spot -> buy USDH
-await hip4.wallet.transferToSpot("100");
-await hip4.wallet.buyUsdh("100");
-
-// Withdraw: sell USDH -> Spot -> Perp -> external
-await hip4.wallet.sellUsdh("50");
-await hip4.wallet.transferToPerps("50");
-await hip4.wallet.withdraw({ destination: "0x...", amount: "50" });
-
-// Send USDC to another HL address
-await hip4.wallet.usdSend({ destination: "0x...", amount: "25" });
-```
-
-USDH spot orders price at oracle +/-10% with `Ioc` TIF. Returns `{ success, filledSz?, avgPx? }`.
-
----
+| Method | Description |
+|--------|-------------|
+| `initAuth(walletAddress, signer)` | Accepts viem `PrivateKeyAccount` or ethers `Signer` |
+| `getAuthStatus()` | `"disconnected" \| "pending_approval" \| "ready"` |
+| `clearAuth()` | Reset auth state |
 
 ## Signing
 
-Both HL signing flows are implemented from scratch with no external dependencies.
+Both Hyperliquid signing flows are implemented from scratch.
 
 **L1 agent signing** (orders, cancels, USDH spot):
 
@@ -123,72 +108,11 @@ Both HL signing flows are implemented from scratch with no external dependencies
 5. Keccak-256 hash -> `connectionId`
 6. EIP-712 sign with `Agent` type on chainId `1337`
 
-Msgpack and keccak-256 are inline implementations.
-
 **User-signed EIP-712** (transfers, withdrawals, sends):
 
 - Domain: `HyperliquidSignTransaction`, `signatureChainId: 0x66eee`
-- Message filtered to EIP-712 type keys only (wallet compatibility)
-- Requires actual user wallet - agent keys rejected
-
-## API Reference
-
-### `adapter.events`
-
-| Method | Description |
-|--------|-------------|
-| `fetchEvents(params?)` | List events. Filters: `category`, `active`, `limit`, `offset`, `query` |
-| `fetchEvent(eventId)` | Single event by ID |
-| `fetchCategories()` | Returns `[{ id, name, slug }]` |
-
-### `adapter.marketData`
-
-| Method | Description |
-|--------|-------------|
-| `fetchOrderBook(marketId, sideIndex?)` | L2 snapshot |
-| `fetchPrice(marketId)` | Both sides from allMids, 5s cache |
-| `fetchTrades(marketId, limit?)` | Recent trades |
-| `fetchCandles(marketId, interval?, start?, end?)` | OHLCV candles |
-| `subscribeOrderBook(marketId, cb)` | Real-time L2 book |
-| `subscribePrice(marketId, cb)` | Real-time prices |
-| `subscribeTrades(marketId, cb)` | Real-time trades |
-
-### `adapter.account`
-
-| Method | Description |
-|--------|-------------|
-| `fetchPositions(address)` | Outcome positions with resolved side names |
-| `fetchActivity(address)` | Fills, last 30 days |
-| `fetchBalance(address)` | Raw spot balances |
-| `fetchOpenOrders(address)` | Resting orders |
-| `subscribePositions(address, cb)` | Polling at 10s |
-
-### `adapter.trading`
-
-| Method | Description |
-|--------|-------------|
-| `placeOrder(params)` | `{ marketId, outcome, side, type, price?, amount }`. Returns `{ success, orderId?, error? }` |
-| `cancelOrder(params)` | `{ marketId, orderId, outcome }`. Throws on failure |
-
-### `adapter.wallet`
-
-| Method | Signing | Description |
-|--------|---------|-------------|
-| `setSigner(signer)` | - | Set user wallet for EIP-712 ops |
-| `buyUsdh(amount)` | L1 agent | Buy USDH at oracle +/-10%, Ioc |
-| `sellUsdh(amount)` | L1 agent | Sell USDH at oracle +/-10%, Ioc |
-| `transferToSpot(amount)` | EIP-712 | Perp -> Spot |
-| `transferToPerps(amount)` | EIP-712 | Spot -> Perp |
-| `withdraw({ destination, amount })` | EIP-712 | Withdraw to external address |
-| `usdSend({ destination, amount })` | EIP-712 | Send to another HL address |
-
-### `adapter.auth`
-
-| Method | Description |
-|--------|-------------|
-| `initAuth(walletAddress, signer)` | Accepts viem `PrivateKeyAccount` or ethers `Signer` |
-| `getAuthStatus()` | `"disconnected" \| "pending_approval" \| "ready"` |
-| `clearAuth()` | Reset |
+- Message filtered to EIP-712 type keys only
+- Requires user wallet, agent keys rejected
 
 ## Acknowledgements
 

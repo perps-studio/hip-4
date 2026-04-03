@@ -23,7 +23,6 @@ import type {
   MarketsByType,
   MarketsByQuestion,
 } from "../types/hip4-market";
-
 /** Callback returned by subscribe methods; call it to unsubscribe. */
 export type Unsubscribe = () => void;
 
@@ -159,3 +158,4 @@ export interface PredictionWalletAdapter {
   /** Send USDC to another Hyperliquid address. */
   usdSend(params: { destination: string; amount: string }): Promise<WalletActionResult>;
 }
+
