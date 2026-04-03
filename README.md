@@ -114,6 +114,7 @@ const grouped = await hip4.events.fetchMarkets({ groupBy: "type" });
 
 // Group multi-outcome by question
 const byQuestion = await hip4.events.fetchMarkets({ groupBy: "question" });
+```
 
 ## Signing
 
