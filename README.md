@@ -95,6 +95,26 @@ await hip4.initialize();
 | `getAuthStatus()` | `"disconnected" \| "pending_approval" \| "ready"` |
 | `clearAuth()` | Reset auth state |
 
+## Market Types
+
+`fetchMarkets()` classifies every HIP-4 outcome into one of three types:
+
+| Type | Description | Parsed Fields |
+|------|-------------|---------------|
+| `defaultBinary` | Recurring price markets (BTC > $67250 1d) | `underlying`, `targetPrice`, `expiry`, `period` |
+| `labelledBinary` | Standalone binary with custom sides (Hypurr vs Usain Bolt) | Custom side labels |
+| `multiOutcome` | Grouped under a question, with fallback | `questionId`, `questionName`, `isFallback` |
+
+```typescript
+// Filter by type
+const binaries = await hip4.events.fetchMarkets({ type: "defaultBinary" });
+
+// Group by type
+const grouped = await hip4.events.fetchMarkets({ groupBy: "type" });
+
+// Group multi-outcome by question
+const byQuestion = await hip4.events.fetchMarkets({ groupBy: "question" });
+
 ## Signing
 
 Both Hyperliquid signing flows are implemented from scratch.
