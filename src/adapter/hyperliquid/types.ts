@@ -29,6 +29,12 @@ export interface HLQuestion {
   settledNamedOutcomes: number[];
 }
 
+export interface HLSettledOutcome {
+  spec: HLOutcome;
+  settleFraction: string;
+  details: string;
+}
+
 // -- L2 book (standard HL format) -------------------------------------------
 
 export interface HLL2Book {

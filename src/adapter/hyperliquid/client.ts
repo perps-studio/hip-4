@@ -17,6 +17,7 @@ import type {
   HLL2Book,
   HLOrderAction,
   HLOutcomeMeta,
+  HLSettledOutcome,
   HLSignature,
   HLSpotClearinghouseState,
   HLTrade,
@@ -151,6 +152,10 @@ export class HIP4Client {
 
   async fetchOutcomeMeta(): Promise<HLOutcomeMeta> {
     return this.infoPost<HLOutcomeMeta>({ type: "outcomeMeta" });
+  }
+
+  async fetchSettledOutcome(outcome: number): Promise<HLSettledOutcome | null> {
+    return this.infoPost<HLSettledOutcome | null>({ type: "settledOutcome", outcome });
   }
 
   async fetchL2Book(coin: string): Promise<HLL2Book> {
