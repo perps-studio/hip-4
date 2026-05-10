@@ -130,7 +130,7 @@ function formatSigFig(value: DecimalInput, sigFigs = 5): string {
 
   const a = d.abs();
   const rounded = a.toSignificantDigits(sigFigs);
-  const magnitude = rounded.log(10).floor().toNumber();
+  const magnitude = rounded.floorLog10().toNumber();
   const dp = Math.max(0, sigFigs - 1 - magnitude);
   const raw = rounded.toFixed(dp);
 

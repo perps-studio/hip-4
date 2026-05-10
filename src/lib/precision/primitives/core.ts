@@ -1,12 +1,14 @@
-import DecimalJS from "decimal.js";
+// ---------------------------------------------------------------------------
+// Decimal arithmetic core. Re-exports the inline `Decimal` class from
+// `_decimal-impl.ts` and provides the lib's functional helpers.
+//
+// Intentionally zero runtime dependencies — see _decimal-impl.ts for the
+// implementation and tests/unit/decimal-parity.test.ts for parity coverage
+// against decimal.js.
+// ---------------------------------------------------------------------------
+
+import { Decimal } from "./_decimal-impl";
 import type { DecimalInput } from "./types";
-
-const Decimal = DecimalJS.clone({
-  precision: 28,
-  rounding: DecimalJS.ROUND_HALF_UP,
-});
-
-type Decimal = DecimalJS;
 
 function toDecimal(value: DecimalInput): Decimal {
   if (value instanceof Decimal) return value;
@@ -61,10 +63,4 @@ function pow(base: DecimalInput, exp: DecimalInput): string {
   return toDecimal(base).pow(toDecimal(exp)).toString();
 }
 
-function sqrt(value: DecimalInput): string {
-  const d = toDecimal(value);
-  if (d.isNegative()) throw new RangeError("sqrt of negative number");
-  return d.sqrt().toString();
-}
-
-export { Decimal, toDecimal, toNum, add, sub, mul, div, abs, neg, pow, sqrt };
+export { Decimal, toDecimal, toNum, add, sub, mul, div, abs, neg, pow };
