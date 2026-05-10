@@ -1,6 +1,6 @@
 {
   "name": "@perps/hip4",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "TypeScript SDK for Hyperliquid HIP-4 prediction markets",
   "repository": {
     "type": "git",
@@ -68,6 +68,7 @@
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.1.0",
+    "decimal.js": "10.6.0",
     "tsup": "^8.0.0",
     "typescript": "^5.7.3",
     "vitest": "^4.1.0"

@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HIP4Client } from "../../src/adapter/hyperliquid/client";
+import { HIP4Client } from "../../src/adapter/hyperliquid/client";
 import { HIP4MarketDataAdapter } from "../../src/adapter/hyperliquid/market-data";
 
 // ---------------------------------------------------------------------------
@@ -68,29 +68,17 @@ function createMockWebSocketClass() {
 }
 
 // ---------------------------------------------------------------------------
-// Mock HIP4Client
+// Real HIP4Client backed by the global MockWebSocket stub.
+//
+// We use a real client (not a stub) so subscribe/reconnect/dispatch logic
+// runs through production code. The logger spy lets tests assert on what
+// the client logged. No HTTP calls are made by these tests.
 // ---------------------------------------------------------------------------
 
-function createMockClient(): HIP4Client {
-  return {
-    testnet: true,
-    infoUrl: "https://test",
-    exchangeUrl: "https://test",
-    wsUrl: "wss://test/ws",
-    log: vi.fn(),
-    fetchOutcomeMeta: vi.fn(),
-    fetchAllMids: vi.fn(),
-    fetchL2Book: vi.fn(),
-    fetchRecentTrades: vi.fn(),
-    fetchCandleSnapshot: vi.fn(),
-    fetchClearinghouseState: vi.fn(),
-    fetchUserFills: vi.fn(),
-    fetchSpotClearinghouseState: vi.fn(),
-    fetchUserFillsByTime: vi.fn(),
-    fetchFrontendOpenOrders: vi.fn(),
-    placeOrder: vi.fn(),
-    cancelOrder: vi.fn(),
-  } as unknown as HIP4Client;
+function createTestClient(): { client: HIP4Client; log: ReturnType<typeof vi.fn> } {
+  const log = vi.fn();
+  const client = new HIP4Client({ testnet: true, logger: log });
+  return { client, log };
 }
 
 // ---------------------------------------------------------------------------
@@ -114,7 +102,7 @@ describe("WS reconnection state logic", () => {
   it("increments reconnectAttempts after WS close", () => {
     vi.stubGlobal("WebSocket", createMockWebSocketClass());
 
-    const client = createMockClient();
+    const { client } = createTestClient();
     const adapter = new HIP4MarketDataAdapter(client);
 
     // Subscribe to trigger WS creation
@@ -147,7 +135,7 @@ describe("WS reconnection state logic", () => {
   it("stops reconnecting after MAX_RECONNECT_ATTEMPTS closes", () => {
     vi.stubGlobal("WebSocket", createMockWebSocketClass());
 
-    const client = createMockClient();
+    const { client, log } = createTestClient();
     const adapter = new HIP4MarketDataAdapter(client);
 
     // Subscribe to trigger WS creation
@@ -173,53 +161,60 @@ describe("WS reconnection state logic", () => {
 
     expect(wsInstances).toHaveLength(countAfterMax);
 
-    // Verify the error was logged
-    expect(client.log).toHaveBeenCalledWith(
-      "error",
+    // Verify the warning was logged. Production logs at "warn" level
+    // (see HIP4Client.scheduleReconnect "max reconnect attempts reached").
+    expect(log).toHaveBeenCalledWith(
+      "warn",
       expect.stringContaining("max reconnect attempts"),
     );
 
     adapter.destroy();
   });
 
-  it("destroy() during reconnect timer clears the timer", () => {
+  it("unsubscribing during pending reconnect prevents the reconnect", () => {
+    // Contract: HIP4MarketDataAdapter.destroy() is now a no-op — WS lifecycle
+    // is managed by per-subscription unsub. After unsub, wsActiveSubs is
+    // empty so the pending reconnect timer fires but exits early without
+    // creating a new socket.
     vi.stubGlobal("WebSocket", createMockWebSocketClass());
 
-    const client = createMockClient();
+    const { client } = createTestClient();
     const adapter = new HIP4MarketDataAdapter(client);
 
-    adapter.subscribeOrderBook("1758", vi.fn());
+    const unsub = adapter.subscribeOrderBook("1758", vi.fn());
     expect(wsInstances).toHaveLength(1);
 
-    // Simulate close - reconnect timer starts
+    // Simulate close — reconnect timer is scheduled because wsActiveSubs
+    // still has this subscription.
     wsInstances[0].simulateClose();
 
-    // Before the timer fires, destroy the adapter
-    adapter.destroy();
+    // Unsubscribe before the timer fires. This clears wsActiveSubs.
+    unsub();
 
-    // Advance past what would have been the reconnect delay
+    // Advance past what would have been the reconnect delay.
     vi.advanceTimersByTime(5000);
 
-    // No new WS should have been created
+    // Reconnect timer fires but skips ensureWs because wsActiveSubs is empty.
     expect(wsInstances).toHaveLength(1);
   });
 
-  it("destroyed flag prevents reconnection", () => {
+  it("unsubscribing before WS close prevents reconnection", () => {
     vi.stubGlobal("WebSocket", createMockWebSocketClass());
 
-    const client = createMockClient();
+    const { client } = createTestClient();
     const adapter = new HIP4MarketDataAdapter(client);
 
-    adapter.subscribeOrderBook("1758", vi.fn());
+    const unsub = adapter.subscribeOrderBook("1758", vi.fn());
     expect(wsInstances).toHaveLength(1);
 
-    // Destroy first, then simulate close
-    adapter.destroy();
+    // Unsubscribe first — this closes the WS and clears wsActiveSubs.
+    unsub();
+    // Then a stale close event arrives.
     wsInstances[0].simulateClose();
 
     vi.advanceTimersByTime(5000);
 
-    // No reconnection should happen
+    // onclose sees wsActiveSubs.size === 0 and skips scheduleReconnect.
     expect(wsInstances).toHaveLength(1);
   });
 });

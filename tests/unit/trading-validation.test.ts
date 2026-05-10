@@ -246,7 +246,11 @@ describe("builder fee support", () => {
     expect(action.builder).toBeUndefined();
   });
 
-  it("omits builder when builderFee is 0", async () => {
+  it("attaches builder with fee 0 when address is provided and fee is 0", async () => {
+    // Contract: providing builderAddress always attaches a `builder` field,
+    // even when the fee is 0 (lets a caller tag an order with a builder for
+    // tracking without charging a fee). To omit the builder entirely, omit
+    // builderAddress.
     await adapter.placeOrder({
       marketId: "1758",
       outcome: "#17580",
@@ -259,7 +263,7 @@ describe("builder fee support", () => {
     });
 
     const action = (client.placeOrder as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(action.builder).toBeUndefined();
+    expect(action.builder).toEqual({ b: "0xabc", f: 0 });
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { HIP4MarketDataAdapter } from "../../src/adapter/hyperliquid/market-data";
-import type { HIP4Client } from "../../src/adapter/hyperliquid/client";
+import { HIP4Client } from "../../src/adapter/hyperliquid/client";
 
 // ---------------------------------------------------------------------------
 // Mock WebSocket (class-based, same pattern as market-data-extras.test.ts)
@@ -42,12 +42,10 @@ beforeEach(() => {
   vi.stubGlobal("WebSocket", MockWebSocket);
 });
 
-function mockClient(): HIP4Client {
-  return {
-    testnet: true,
-    wsUrl: "wss://test",
-    log: () => {},
-  } as unknown as HIP4Client;
+function realClient(): HIP4Client {
+  // Use a real HIP4Client so subscribe/dispatch logic runs through production
+  // code. The global WebSocket stub above intercepts all socket creation.
+  return new HIP4Client({ testnet: true });
 }
 
 function simulateMessage(channel: string, data: Record<string, unknown>) {
@@ -61,7 +59,7 @@ function simulateMessage(channel: string, data: Record<string, unknown>) {
 
 describe("WebSocket per-coin dispatch", () => {
   it("dispatches l2Book messages to the correct per-coin subscriber", () => {
-    const adapter = new HIP4MarketDataAdapter(mockClient());
+    const adapter = new HIP4MarketDataAdapter(realClient());
 
     const cb = vi.fn();
     adapter.subscribeOrderBook("10", cb);
@@ -76,7 +74,7 @@ describe("WebSocket per-coin dispatch", () => {
   });
 
   it("does not dispatch l2Book to wrong coin subscriber", () => {
-    const adapter = new HIP4MarketDataAdapter(mockClient());
+    const adapter = new HIP4MarketDataAdapter(realClient());
 
     const cb10 = vi.fn();
     const cb20 = vi.fn();
@@ -94,7 +92,7 @@ describe("WebSocket per-coin dispatch", () => {
   });
 
   it("dispatches allMids to channel-only subscriber", () => {
-    const adapter = new HIP4MarketDataAdapter(mockClient());
+    const adapter = new HIP4MarketDataAdapter(realClient());
 
     const cb = vi.fn();
     adapter.subscribePrice("10", cb);
@@ -107,7 +105,7 @@ describe("WebSocket per-coin dispatch", () => {
   });
 
   it("dispatches trades to per-coin subscriber", () => {
-    const adapter = new HIP4MarketDataAdapter(mockClient());
+    const adapter = new HIP4MarketDataAdapter(realClient());
 
     const cb = vi.fn();
     adapter.subscribeTrades("10", cb);
@@ -123,7 +121,7 @@ describe("WebSocket per-coin dispatch", () => {
   });
 
   it("does not dispatch to per-coin subscribers when data has no coin field", () => {
-    const adapter = new HIP4MarketDataAdapter(mockClient());
+    const adapter = new HIP4MarketDataAdapter(realClient());
 
     const bookCb = vi.fn();
     adapter.subscribeOrderBook("10", bookCb);

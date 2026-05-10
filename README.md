@@ -34,6 +34,7 @@ await hip4.initialize();
 - [`place-limit-order.ts`](examples/place-limit-order.ts) - Limit order with price validation
 - [`place-market-order.ts`](examples/place-market-order.ts) - Market order with FrontendMarket TIF
 - [`stream-prices.ts`](examples/stream-prices.ts) - Stream live prices via WebSocket
+- [`usdh-ramp.ts`](examples/usdh-ramp.ts) - End-to-end USDH on/off-ramp via Coinbase + Across
 
 ## API
 
@@ -45,6 +46,7 @@ await hip4.initialize();
 | `fetchEvent(eventId)` | Single event by ID |
 | `fetchCategories()` | Available categories |
 | `fetchMarkets(params?)` | Typed HIP-4 markets with optional grouping by type or question |
+| `fetchSettledOutcome(outcomeId)` | Settlement details for a resolved outcome. Returns `null` if not settled |
 
 ### `hip4.marketData`
 
@@ -57,6 +59,10 @@ await hip4.initialize();
 | `subscribeOrderBook(marketId, cb)` | Real-time L2 book |
 | `subscribePrice(marketId, cb)` | Real-time prices |
 | `subscribeTrades(marketId, cb)` | Real-time trades |
+| `subscribeAllMids(cb)` | All mid-prices across every market |
+| `subscribeActiveAssetCtx(coin, cb)` | Per-spot-coin context (vol, OI, mark) |
+| `subscribeSpotAssetCtxs(cb)` | Bulk spot-asset context updates |
+| `subscribePerpAssetCtx(coin, cb)` | Per-perp-coin context (mark, oracle, funding) |
 
 ### `hip4.account`
 
@@ -73,7 +79,14 @@ await hip4.initialize();
 | Method | Description |
 |--------|-------------|
 | `placeOrder(params)` | Place market or limit order. Returns `{ success, orderId?, error? }` |
-| `cancelOrder(params)` | Cancel a resting order |
+| `placeOrders(params[])` | Batch place orders in a single signed request |
+| `modifyOrder(params)` | Modify a resting order (price and/or size); preserves queue priority on size-only edits |
+| `cancelOrder(params[])` | Cancel one or more resting orders. Returns `HLCancelResponse` |
+| `scheduleCancel(time)` | Dead-man's switch — registers a future timestamp at which HL cancels every open order from this agent. Pass `null` to clear |
+| `splitOutcome(params)` | Split X quote tokens into X Yes + X No shares of one outcome |
+| `mergeOutcome(params)` | Merge X paired Yes+No shares back into X quote tokens |
+| `mergeQuestion(params)` | Merge X Yes shares from every outcome of a question into X quote tokens |
+| `negateOutcome(params)` | Convert X No shares of one outcome into X Yes shares of every other outcome in the question |
 
 ### `hip4.wallet`
 
@@ -97,13 +110,14 @@ await hip4.initialize();
 
 ## Market Types
 
-`fetchMarkets()` classifies every HIP-4 outcome into one of three types:
+`fetchMarkets()` classifies every HIP-4 outcome into one of four types:
 
 | Type | Description | Parsed Fields |
 |------|-------------|---------------|
 | `defaultBinary` | Recurring price markets (BTC > $67250 1d) | `underlying`, `targetPrice`, `expiry`, `period` |
 | `labelledBinary` | Standalone binary with custom sides (Hypurr vs Usain Bolt) | Custom side labels |
 | `multiOutcome` | Grouped under a question, with fallback | `questionId`, `questionName`, `isFallback` |
+| `priceBucket` | Recurring multi-bucket price markets (per-bucket Yes/No) | `underlying`, `expiry`, `priceThresholds`, `period`, `bucketIndex`, `lowerBound`, `upperBound` |
 
 ```typescript
 // Filter by type
@@ -114,6 +128,60 @@ const grouped = await hip4.events.fetchMarkets({ groupBy: "type" });
 
 // Group multi-outcome by question
 const byQuestion = await hip4.events.fetchMarkets({ groupBy: "question" });
+```
+
+## Configuration
+
+```typescript
+const hip4 = createHIP4Adapter({
+  testnet: true,
+  // Builder fee — collected on every order placed by this adapter
+  builderAddress: "0xYourBuilderAddress",
+  builderFee: 100,           // 0.1% (tenths of a basis point, 0–1000)
+  logger: (level, msg, data) => console.log(level, msg, data),
+});
+```
+
+Per-order builder address/fee can also be passed on `placeOrder` to override the adapter-level config.
+
+## Streams
+
+Drop-in price feeds backed by HL's WebSocket. Each takes a callback and returns an unsubscribe function. The snapshot includes the rolling candle history plus the current mid.
+
+```typescript
+import { createPriceFeed, createPerpPriceFeed } from "@perps/hip4";
+
+// HIP-4 outcome side (uses sideIndex 0 by default)
+const unsub = createPriceFeed(
+  hip4.marketData,
+  "1758",
+  (snapshot) => console.log(snapshot.currentMid, snapshot.candles),
+  { interval: "1h" },
+);
+unsub();
+```
+
+| Helper | Use |
+|--------|-----|
+| `createPriceFeed(marketData, marketId, onSnapshot, opts?)` | Live mid + tick-aggregated candle history for a HIP-4 outcome side |
+| `createPerpPriceFeed(client, coin, onSnapshot, opts?)` | Same shape for an HL perp coin |
+| `processTick`, `candleBoundaryMs`, `intervalToMs` | Lower-level candle utilities |
+
+## USDH on/off-ramp (mainnet)
+
+Built-in fiat ↔ USDH ramp via Coinbase + Across. Buy: fiat → Coinbase onramp → USDC (Arbitrum) → Across counterfactual → USDH (HyperCore). Sell: USDH (HyperEVM) → Across swap → USDC (Arbitrum) → Coinbase offramp → fiat. See [`examples/usdh-ramp.ts`](examples/usdh-ramp.ts) for the full flow.
+
+## Orderbook utilities
+
+```typescript
+import { computeTradeCost, computeEstimatedCost, computePotentialReturn } from "@perps/hip4";
+
+const cost = computeTradeCost({
+  tokenAmount: 100,
+  orderType: "limit",
+  limitPriceCents: 55,        // 0.55 in cents
+});
+// → { estimatedCost, potentialReturn, displayShares }
 ```
 
 ## Signing
