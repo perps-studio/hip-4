@@ -14,14 +14,9 @@
 
 import type {
   HIP4Signer,
-  HLBatchModifyAction,
   HLCancelAction,
-  HLModifyAction,
   HLOrderAction,
-  HLOrderWire,
-  HLScheduleCancelAction,
   HLSignature,
-  HLUserOutcomeAction,
 } from "./types";
 import { normalizeSignature } from "./types";
 
@@ -406,7 +401,6 @@ function hexToBytes(hex: string): Uint8Array {
 /**
  * Strip trailing zeros from a decimal string.
  * "0.5000" → "0.5", "10.00" → "10", "3" → "3" (no-op if no decimal point).
- * Matches @nktkas/hyperliquid formatDecimal behavior.
  */
 function formatDecimal(numStr: string): string {
   // Handle scientific notation (e.g. "1e-5" → "0.00001")
@@ -425,9 +419,7 @@ function formatDecimal(numStr: string): string {
  * Order wire key order: a, b, p, s, r, t, c?
  * Trigger type key order: isMarket, triggerPx, tpsl
  */
-export function sortOrderAction(
-  action: HLOrderAction & { builder?: { b: string; f: number } },
-): HLOrderAction {
+export function sortOrderAction(action: HLOrderAction & { builder?: { b: string; f: number } }): HLOrderAction {
   const sortedOrders = action.orders.map((o) => {
     // Sort the 't' field if it's a trigger type
     let t = o.t;
@@ -491,123 +483,6 @@ export function sortCancelAction(action: HLCancelAction): HLCancelAction {
   };
 }
 
-/**
- * Apply the same canonical ordering to an order wire that sortOrderAction
- * does (a, b, p, s, r, t, c?) — shared between place-order and modify paths.
- */
-function sortOrderWire(o: HLOrderWire): HLOrderWire {
-  let t = o.t;
-  if ("trigger" in t) {
-    t = {
-      trigger: {
-        isMarket: t.trigger.isMarket,
-        triggerPx: formatDecimal(t.trigger.triggerPx),
-        tpsl: t.trigger.tpsl,
-      },
-    };
-  }
-  const wire: Record<string, unknown> = {
-    a: o.a,
-    b: o.b,
-    p: formatDecimal(o.p),
-    s: formatDecimal(o.s),
-    r: o.r,
-    t: t,
-  };
-  if (o.c !== undefined) {
-    wire.c = o.c;
-  }
-  return wire as unknown as HLOrderWire;
-}
-
-/**
- * Sort a modify action into canonical key order.
- * Key order: type, oid, order
- * Inner order wire uses the same canonical order as place-order.
- */
-export function sortModifyAction(action: HLModifyAction): HLModifyAction {
-  return {
-    type: action.type,
-    oid: action.oid,
-    order: sortOrderWire(action.order),
-  };
-}
-
-/**
- * Sort a batchModify action into canonical key order.
- * Key order: type, modifies. Each modify entry uses key order: oid, order.
- */
-export function sortBatchModifyAction(
-  action: HLBatchModifyAction,
-): HLBatchModifyAction {
-  return {
-    type: action.type,
-    modifies: action.modifies.map((m) => ({
-      oid: m.oid,
-      order: sortOrderWire(m.order),
-    })),
-  };
-}
-
-/**
- * Sort a userOutcome action into canonical key order for MessagePack.
- * Outer key order: type, <variant-key>. Inner key orders match HL's docs:
- *   splitOutcome:    outcome, amount
- *   mergeOutcome:    outcome, amount
- *   mergeQuestion:   question, amount
- *   negateQuestion:  question, outcome, amount
- *
- * `amount` is run through formatDecimal so trailing zeros do not desync the
- * client signature from HL's server-side hash. `null` is preserved (encodes
- * as msgpack 0xc0 / "max amount").
- */
-export function sortUserOutcomeAction(
-  action: HLUserOutcomeAction,
-): HLUserOutcomeAction {
-  if ("splitOutcome" in action) {
-    const { outcome, amount } = action.splitOutcome;
-    return {
-      type: "userOutcome",
-      splitOutcome: { outcome, amount: formatDecimal(amount) },
-    };
-  }
-  if ("mergeOutcome" in action) {
-    const { outcome, amount } = action.mergeOutcome;
-    return {
-      type: "userOutcome",
-      mergeOutcome: {
-        outcome,
-        amount: amount === null ? null : formatDecimal(amount),
-      },
-    };
-  }
-  if ("mergeQuestion" in action) {
-    const { question, amount } = action.mergeQuestion;
-    return {
-      type: "userOutcome",
-      mergeQuestion: {
-        question,
-        amount: amount === null ? null : formatDecimal(amount),
-      },
-    };
-  }
-  const { question, outcome, amount } = action.negateOutcome;
-  return {
-    type: "userOutcome",
-    negateOutcome: { question, outcome, amount: formatDecimal(amount) },
-  };
-}
-
-/**
- * Sort a scheduleCancel action into canonical key order. Outer keys:
- * `type, time`. Time may be `null` to clear an existing schedule.
- */
-export function sortScheduleCancelAction(
-  action: HLScheduleCancelAction,
-): HLScheduleCancelAction {
-  return { type: action.type, time: action.time };
-}
-
 // ---------------------------------------------------------------------------
 // L1 Action Hash
 // ---------------------------------------------------------------------------
@@ -619,14 +494,7 @@ export function sortScheduleCancelAction(
  * vault_marker = 0x00 (no vault) | 0x01 + 20-byte address
  */
 export function createL1ActionHash(params: {
-  action:
-    | Record<string, unknown>
-    | HLOrderAction
-    | HLCancelAction
-    | HLModifyAction
-    | HLBatchModifyAction
-    | HLUserOutcomeAction
-    | HLScheduleCancelAction;
+  action: Record<string, unknown> | HLOrderAction | HLCancelAction;
   nonce: number;
   vaultAddress?: string | null;
 }): Uint8Array {
@@ -688,14 +556,7 @@ const AGENT_TYPES = {
  */
 export async function signL1Action(params: {
   signer: HIP4Signer;
-  action:
-    | Record<string, unknown>
-    | HLOrderAction
-    | HLCancelAction
-    | HLModifyAction
-    | HLBatchModifyAction
-    | HLUserOutcomeAction
-    | HLScheduleCancelAction;
+  action: Record<string, unknown> | HLOrderAction | HLCancelAction;
   nonce: number;
   isTestnet: boolean;
   vaultAddress?: string | null;
@@ -725,8 +586,6 @@ export async function signL1Action(params: {
 // Used for wallet-level operations: withdraw, usdClassTransfer, usdSend,
 // approveAgent, approveBuilderFee, etc. NOT used for orders/cancels (those
 // always use L1 agent signing above).
-//
-// Reference: @nktkas/hyperliquid signing/mod.ts — signUserSignedAction
 // ---------------------------------------------------------------------------
 
 /** EIP-712 types for withdraw3. */
@@ -756,65 +615,6 @@ export const USD_SEND_TYPES = {
     { name: "destination", type: "string" },
     { name: "amount", type: "string" },
     { name: "time", type: "uint64" },
-  ],
-};
-
-/** EIP-712 types for spotSend (transfer any spot token to another user). */
-export const SPOT_SEND_TYPES = {
-  "HyperliquidTransaction:SpotSend": [
-    { name: "hyperliquidChain", type: "string" },
-    { name: "destination", type: "string" },
-    { name: "token", type: "string" },
-    { name: "amount", type: "string" },
-    { name: "time", type: "uint64" },
-  ],
-};
-
-/**
- * EIP-712 types for sendAsset — the unified-account-compatible transfer
- * primitive. Supersedes spotSend / usdSend / subAccountSpotTransfer /
- * usdClassTransfer when an account is in `unifiedAccount` or
- * `portfolioMargin` mode (where silo-specific actions are rejected with
- * "Action disabled when unified account is active").
- *
- * `sourceDex` / `destinationDex`: `""` for perp USDC, `"spot"` for spot.
- * Core→EVM transfers use `destination` = the token's system address and
- * leave `destinationDex` as `""`.
- *
- * Ref: @nktkas/hyperliquid src/api/exchange/_methods/sendAsset.ts
- */
-export const SEND_ASSET_TYPES = {
-  "HyperliquidTransaction:SendAsset": [
-    { name: "hyperliquidChain", type: "string" },
-    { name: "destination", type: "string" },
-    { name: "sourceDex", type: "string" },
-    { name: "destinationDex", type: "string" },
-    { name: "token", type: "string" },
-    { name: "amount", type: "string" },
-    { name: "fromSubAccount", type: "string" },
-    { name: "nonce", type: "uint64" },
-  ],
-};
-
-/**
- * EIP-712 types for sendToEvmWithData (Core → EVM transfer invoking the
- * linked contract's `coreReceiveWithData` hook). Field order matches the
- * canonical Hyperliquid spec; deviations break signature verification.
- *
- * Ref: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint
- */
-export const SEND_TO_EVM_WITH_DATA_TYPES = {
-  "HyperliquidTransaction:SendToEvmWithData": [
-    { name: "hyperliquidChain", type: "string" },
-    { name: "token", type: "string" },
-    { name: "amount", type: "string" },
-    { name: "sourceDex", type: "string" },
-    { name: "destinationRecipient", type: "string" },
-    { name: "addressEncoding", type: "string" },
-    { name: "destinationChainId", type: "uint32" },
-    { name: "gasLimit", type: "uint64" },
-    { name: "data", type: "bytes" },
-    { name: "nonce", type: "uint64" },
   ],
 };
 

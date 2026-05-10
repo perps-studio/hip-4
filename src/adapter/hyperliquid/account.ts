@@ -5,8 +5,6 @@
 // Activity: from userFillsByTime (30-day range), filtered to outcome coins
 // ---------------------------------------------------------------------------
 
-import { toDecimal, sub, mul, div, isZero } from "../../lib/precision/primitives";
-import { fixed } from "../../lib/precision/io";
 import type {
   PredictionActivity,
   PredictionPosition,
@@ -18,6 +16,7 @@ import { coinOutcomeId, isOutcomeCoin, parseSideCoin } from "./client";
 import type { SideNameResolver } from "./events";
 import type { HLFill } from "./types";
 
+/** Minimal interface for fetching event data (avoids importing the full event adapter class). */
 interface EventDataSource {
   fetchEvents(params?: { limit?: number }): Promise<PredictionEvent[]>;
   ensureSideNames?(): Promise<void>;
@@ -40,13 +39,16 @@ function mapSpotBalance(
   const coin = bal.coin;
   if (!isOutcomeCoin(coin)) return null;
 
-  const total = toDecimal(bal.total);
-  if (total.isZero()) return null;
+  const total = parseFloat(bal.total);
+  if (total === 0) return null;
 
   const outcomeId = coinOutcomeId(coin);
   const marketId = outcomeId !== null ? String(outcomeId) : coin;
+
+  // outcome stays as the coin identifier (e.g. "#90") for lookups
   const outcome = coin;
 
+  // Resolve human-readable name from sideSpecs
   const parsed = parseSideCoin(coin);
   let outcomeName: string;
   if (parsed && resolveSideNames) {
@@ -56,13 +58,13 @@ function mapSpotBalance(
     outcomeName = parsed ? `Side ${parsed.sideIndex}` : coin;
   }
 
-  const entryNtl = toDecimal(bal.entryNtl);
-  const avgCost = isZero(bal.total) ? "0" : div(bal.entryNtl, bal.total);
+  const entryNtl = parseFloat(bal.entryNtl);
+  const avgCost = total !== 0 ? entryNtl / total : 0;
 
   const mid = allMids[coin];
-  const currentPrice = mid ?? "0";
-  const unrealizedPnl = mul(sub(currentPrice, avgCost), bal.total);
-  const potentialPayout = bal.total;
+  const currentPrice = mid ? parseFloat(mid) : 0;
+  const unrealizedPnl = (currentPrice - avgCost) * total;
+  const potentialPayout = total;
 
   const names = nameMap.get(marketId);
   return {
@@ -71,11 +73,11 @@ function mapSpotBalance(
     marketQuestion: names?.marketQuestion ?? "",
     outcome,
     outcomeName,
-    shares: fixed(bal.total, 6),
-    avgCost: fixed(avgCost, 6),
-    currentPrice,
-    unrealizedPnl: fixed(unrealizedPnl, 6),
-    potentialPayout: fixed(potentialPayout, 6),
+    shares: total.toFixed(6),
+    avgCost: avgCost.toFixed(6),
+    currentPrice: mid ?? "0",
+    unrealizedPnl: unrealizedPnl.toFixed(6),
+    potentialPayout: potentialPayout.toFixed(6),
     eventStatus: "active",
   };
 }
@@ -110,6 +112,7 @@ export class HIP4AccountAdapter implements PredictionAccountAdapter {
   }
 
   async fetchPositions(address: string): Promise<PredictionPosition[]> {
+    // Ensure side names are loaded before resolving positions
     if (this.events?.ensureSideNames) {
       await this.events.ensureSideNames();
     }
@@ -121,6 +124,7 @@ export class HIP4AccountAdapter implements PredictionAccountAdapter {
         Promise.resolve([] as PredictionEvent[]),
     ]);
 
+    // Build name lookup: marketId (outcome ID string) → { eventTitle, marketQuestion }
     const nameMap = new Map<string, { eventTitle: string; marketQuestion: string }>();
     for (const event of eventList) {
       for (const market of event.markets) {
@@ -131,7 +135,7 @@ export class HIP4AccountAdapter implements PredictionAccountAdapter {
     const positions: PredictionPosition[] = [];
     for (const bal of state.balances) {
       if (!isOutcomeCoin(bal.coin)) continue;
-      if (isZero(bal.total)) continue;
+      if (parseFloat(bal.total) === 0) continue;
 
       const mapped = mapSpotBalance(bal, allMids, nameMap, this.resolveSideNames);
       if (mapped) positions.push(mapped);
@@ -196,6 +200,8 @@ export class HIP4AccountAdapter implements PredictionAccountAdapter {
   ): Unsubscribe {
     let active = true;
 
+    // Note: effective interval is POLL_INTERVAL_MS + fetch duration. This is
+    // intentional - prevents overlapping requests on slow networks.
     const poll = async () => {
       while (active) {
         try {

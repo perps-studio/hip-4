@@ -3,15 +3,13 @@
 //
 // Classifies raw HLOutcome objects into typed HIP4Market variants:
 //   defaultBinary   - description parses as class:priceBinary (recurring)
-//   priceBucket     - parent question parses as class:priceBucket (recurring)
-//   multiOutcome    - outcome belongs to a non-priceBucket question group
+//   multiOutcome    - outcome belongs to a question group
 //   labelledBinary  - everything else (standalone, any side labels)
 //
 // Detection priority:
 //   1. priceBinary description parse → defaultBinary
-//   2. Parent question is priceBucket → priceBucket
-//   3. In a question's namedOutcomes or fallbackOutcome → multiOutcome
-//   4. Fallthrough → labelledBinary
+//   2. In a question's namedOutcomes or fallbackOutcome → multiOutcome
+//   3. Fallthrough → labelledBinary
 // ---------------------------------------------------------------------------
 
 import type { HLOutcome, HLQuestion } from "./types";
@@ -20,11 +18,9 @@ import type {
   DefaultBinaryMarket,
   LabelledBinaryMarket,
   MultiOutcomeMarket,
-  PriceBucketMarket,
   MarketSide,
 } from "../../types/hip4-market";
-import type { ParsedPriceBucketDescription } from "./market-discovery";
-import { parseDescription, parsePriceBucketDescription } from "./market-discovery";
+import { parseDescription } from "./market-discovery";
 
 const PREDICTION_ASSET_OFFSET = 100_000_000;
 
@@ -53,103 +49,22 @@ function buildSides(outcome: HLOutcome): [MarketSide, MarketSide] {
 // Question lookup index
 // ---------------------------------------------------------------------------
 
-interface QuestionEntry {
-  question: HLQuestion;
-  isFallback: boolean;
-  /** Index in question.namedOutcomes; -1 for fallback */
-  bucketIndex: number;
-  /** Pre-parsed priceBucket spec on the question, if any */
-  bucket: ParsedPriceBucketDescription | null;
+interface QuestionIndex {
+  /** outcomeId → { question, isFallback } */
+  byOutcome: Map<number, { question: HLQuestion; isFallback: boolean }>;
 }
 
-/**
- * Pre-computed lookup from outcomeId → parent question metadata.
- * Reuse across multiple `classifyOutcome` calls to avoid O(N) rebuilds per
- * call (see {@link buildQuestionIndex}).
- */
-export interface QuestionIndex {
-  /** outcomeId → entry */
-  byOutcome: Map<number, QuestionEntry>;
-}
-
-/**
- * Build the question index once and reuse it when classifying many outcomes
- * via `classifyOutcome`. `classifyAllOutcomes` builds its own index
- * internally — this helper exists for callers that need per-outcome
- * classification in a loop.
- */
-export function buildQuestionIndex(questions: HLQuestion[]): QuestionIndex {
-  const byOutcome = new Map<number, QuestionEntry>();
+function buildQuestionIndex(questions: HLQuestion[]): QuestionIndex {
+  const byOutcome = new Map<number, { question: HLQuestion; isFallback: boolean }>();
 
   for (const q of questions) {
-    const bucket = parsePriceBucketDescription(q.description);
-    q.namedOutcomes.forEach((id, bucketIndex) => {
-      byOutcome.set(id, { question: q, isFallback: false, bucketIndex, bucket });
-    });
-    byOutcome.set(q.fallbackOutcome, {
-      question: q,
-      isFallback: true,
-      bucketIndex: -1,
-      bucket,
-    });
+    for (const id of q.namedOutcomes) {
+      byOutcome.set(id, { question: q, isFallback: false });
+    }
+    byOutcome.set(q.fallbackOutcome, { question: q, isFallback: true });
   }
 
   return { byOutcome };
-}
-
-/**
- * Resolve the [lowerBound, upperBound) for a bucket within a priceBucket
- * question, given the question's `priceThresholds`. Bounds are half-open:
- * `lowerBound` is inclusive, `upperBound` is exclusive.
- *
- *   bucketIndex < 0           → both null (fallback bucket)
- *   bucketIndex === 0         → lowerBound is null (unbounded below)
- *   bucketIndex >= len        → upperBound is null (unbounded above)
- *
- * @param thresholds Sorted list of bucket boundaries from the question.
- * @param bucketIndex Position in the question's namedOutcomes array.
- */
-export function getPriceBucketBounds(
-  thresholds: readonly number[],
-  bucketIndex: number,
-): { lowerBound: number | null; upperBound: number | null } {
-  if (bucketIndex < 0) return { lowerBound: null, upperBound: null };
-  const lowerBound = bucketIndex === 0 ? null : thresholds[bucketIndex - 1] ?? null;
-  const upperBound =
-    bucketIndex >= thresholds.length ? null : thresholds[bucketIndex] ?? null;
-  return { lowerBound, upperBound };
-}
-
-function buildPriceBucketMarket(
-  outcome: HLOutcome,
-  sides: [MarketSide, MarketSide],
-  entry: QuestionEntry,
-  bucket: ParsedPriceBucketDescription,
-): PriceBucketMarket {
-  const { lowerBound, upperBound } = getPriceBucketBounds(
-    bucket.priceThresholds,
-    entry.bucketIndex,
-  );
-  return {
-    type: "priceBucket",
-    outcomeId: outcome.outcome,
-    name: outcome.name,
-    description: outcome.description,
-    sides,
-    raw: outcome,
-    underlying: bucket.underlying,
-    expiry: bucket.expiry,
-    priceThresholds: bucket.priceThresholds,
-    period: bucket.period,
-    questionId: entry.question.question,
-    questionName: entry.question.name,
-    questionDescription: entry.question.description,
-    isFallback: entry.isFallback,
-    bucketIndex: entry.bucketIndex,
-    lowerBound,
-    upperBound,
-    rawQuestion: entry.question,
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -161,23 +76,15 @@ function buildPriceBucketMarket(
  *
  * Detection priority:
  *   1. Description parses as class:priceBinary → defaultBinary
- *   2. Outcome is in a question → multiOutcome (or priceBucket)
+ *   2. Outcome is in a question → multiOutcome
  *   3. Everything else → labelledBinary
- *
- * For batch classification, prefer `classifyAllOutcomes` (builds the index
- * once). When calling `classifyOutcome` repeatedly, pass a pre-built
- * `precomputedIndex` to avoid rebuilding it on every call:
- *
- *     const index = buildQuestionIndex(questions);
- *     for (const o of outcomes) classifyOutcome(o, questions, index);
  */
 export function classifyOutcome(
   outcome: HLOutcome,
   questions: HLQuestion[],
-  precomputedIndex?: QuestionIndex,
 ): HIP4Market {
   const sides = buildSides(outcome);
-  const index = precomputedIndex ?? buildQuestionIndex(questions);
+  const index = buildQuestionIndex(questions);
 
   // 1. Try priceBinary
   const parsed = parseDescription(outcome.description);
@@ -200,9 +107,6 @@ export function classifyOutcome(
   // 2. Check if in a question
   const questionEntry = index.byOutcome.get(outcome.outcome);
   if (questionEntry) {
-    if (questionEntry.bucket) {
-      return buildPriceBucketMarket(outcome, sides, questionEntry, questionEntry.bucket);
-    }
     const market: MultiOutcomeMarket = {
       type: "multiOutcome",
       outcomeId: outcome.outcome,
@@ -261,9 +165,6 @@ export function classifyAllOutcomes(
 
     const questionEntry = index.byOutcome.get(outcome.outcome);
     if (questionEntry) {
-      if (questionEntry.bucket) {
-        return buildPriceBucketMarket(outcome, sides, questionEntry, questionEntry.bucket);
-      }
       return {
         type: "multiOutcome",
         outcomeId: outcome.outcome,

@@ -15,15 +15,7 @@ import type {
 import type { HIP4Client } from "./client";
 import { sideCoin } from "./client";
 import type { SideNameResolver } from "./events";
-import type {
-  HLL2Book,
-  HLTrade,
-  HLWsActivePerpAssetCtxData,
-  HLWsActiveSpotAssetCtxData,
-  HLWsAllMidsData,
-  HLWsL2BookData,
-  HLWsSpotAssetCtxsData,
-} from "./types";
+import type { HLL2Book, HLTrade, HLWsL2BookData } from "./types";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -62,13 +54,29 @@ function mapTrade(raw: HLTrade, marketId: string): PredictionTrade {
 }
 
 // ---------------------------------------------------------------------------
+// WebSocket pool entry
+// ---------------------------------------------------------------------------
+
+interface WsPoolEntry {
+  ws: WebSocket;
+  subscriptions: Map<string, Set<(msg: unknown) => void>>;
+  refCount: number;
+}
+
+// ---------------------------------------------------------------------------
 // HIP4MarketDataAdapter
 // ---------------------------------------------------------------------------
 
 export class HIP4MarketDataAdapter implements PredictionMarketDataAdapter {
+  private wsPool: WsPoolEntry | null = null;
   private midsCache: { data: Record<string, string>; time: number } | null =
     null;
   private static readonly MIDS_CACHE_TTL = 5_000;
+  private static readonly MAX_RECONNECT_ATTEMPTS = 10;
+  private static readonly MAX_RECONNECT_DELAY = 30_000;
+  private reconnectAttempts = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private destroyed = false;
 
   private readonly resolveSideNames: SideNameResolver;
   private readonly ensureSideNames?: () => Promise<void>;
@@ -82,10 +90,7 @@ export class HIP4MarketDataAdapter implements PredictionMarketDataAdapter {
     this.ensureSideNames = ensureSideNames;
   }
 
-  async fetchOrderBook(
-    marketId: string,
-    sideIndex: number = 0,
-  ): Promise<PredictionOrderBook> {
+  async fetchOrderBook(marketId: string, sideIndex: number = 0): Promise<PredictionOrderBook> {
     const outcomeId = parseInt(marketId, 10);
     const coin = sideCoin(outcomeId, sideIndex);
     const raw = await this.client.fetchL2Book(coin);
@@ -135,27 +140,13 @@ export class HIP4MarketDataAdapter implements PredictionMarketDataAdapter {
     interval = "1h",
     startTime?: number,
     endTime?: number,
-  ): Promise<
-    Array<{
-      time: number;
-      open: number;
-      high: number;
-      low: number;
-      close: number;
-      volume: number;
-    }>
-  > {
+  ): Promise<Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }>> {
     const outcomeId = parseInt(marketId, 10);
     const coin = sideCoin(outcomeId, 0);
     const now = Date.now();
     const start = startTime ?? now - 14 * 24 * 60 * 60 * 1000;
     const end = endTime ?? now;
-    const raw = await this.client.fetchCandleSnapshot(
-      coin,
-      interval,
-      start,
-      end,
-    );
+    const raw = await this.client.fetchCandleSnapshot(coin, interval, start, end);
     return raw.map((c) => ({
       time: c.t / 1000,
       open: parseFloat(c.o),
@@ -175,7 +166,7 @@ export class HIP4MarketDataAdapter implements PredictionMarketDataAdapter {
     const outcomeId = parseInt(marketId, 10);
     const coin = sideCoin(outcomeId, 0);
     return this.subscribeWs("l2Book", coin, (data) => {
-      if (isL2BookData(data) && data.coin === coin) {
+      if (isL2BookData(data)) {
         onData(mapWsBook(data, marketId));
       }
     });
@@ -228,79 +219,22 @@ export class HIP4MarketDataAdapter implements PredictionMarketDataAdapter {
     return this.subscribeWs("trades", coin, (data) => {
       if (!isTradesData(data)) return;
       for (const t of data) {
-        const trade = t as HLTrade;
-        if (trade.coin === coin) {
-          onData(mapTrade(trade, marketId));
-        }
+        onData(mapTrade(t as HLTrade, marketId));
       }
     });
   }
 
-  subscribeAllMids(onData: (data: HLWsAllMidsData) => void): Unsubscribe {
-    return this.subscribeWs("allMids", "*", (data) => {
-      if (isAllMidsData(data)) {
-        onData(data);
-      }
-    });
-  }
-
-  /**
-   * Subscribe to real-time asset context (volume, mark price, OI) for a spot coin.
-   *
-   * HL subscription type is "activeAssetCtx" but the response channel for spot
-   * assets is "activeSpotAssetCtx" (perps use "activeAssetCtx" instead).
-   * We only handle spot here since HIP-4 prediction tokens are spot assets.
-   * If perps support is added, a separate method or channel-aware routing is needed.
-   */
-  subscribeActiveAssetCtx(
-    coin: string,
-    onData: (data: HLWsActiveSpotAssetCtxData) => void,
-  ): Unsubscribe {
-    return this.subscribeWs(
-      "activeSpotAssetCtx",
-      coin,
-      (data) => {
-        if (isActiveAssetCtxData(data) && data.coin === coin) {
-          onData(data);
-        }
-      },
-      "activeAssetCtx",
-    );
-  }
-
-  /**
-   * Subscribe to bulk spot asset context updates for ALL spot coins.
-   * Undocumented HL subscription type "spotAssetCtxs" — streams an array
-   * of SpotAssetCtx entries on each update.
-   */
-  subscribeSpotAssetCtxs(
-    onData: (data: HLWsSpotAssetCtxsData) => void,
-  ): Unsubscribe {
-    return this.subscribeWs("spotAssetCtxs", "*", (data) => {
-      if (isSpotAssetCtxsData(data)) {
-        onData(data);
-      }
-    });
-  }
-
-  /**
-   * Subscribe to real-time perp asset context (mark price, oracle, funding).
-   * For perps, both subscription type and response channel are "activeAssetCtx".
-   */
-  subscribePerpAssetCtx(
-    coin: string,
-    onData: (data: HLWsActivePerpAssetCtxData) => void,
-  ): Unsubscribe {
-    return this.subscribeWs("activeAssetCtx", coin, (data) => {
-      if (isActivePerpAssetCtxData(data) && data.coin === coin) {
-        onData(data);
-      }
-    });
-  }
-
-  /** No-op — WebSocket lifecycle is managed by the shared HIP4Client. */
+  /** Close the WebSocket and stop any pending reconnection */
   destroy(): void {
-    // Individual subscriptions are cleaned up by their unsubscribe functions.
+    this.destroyed = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.wsPool) {
+      this.wsPool.ws.close();
+      this.wsPool = null;
+    }
   }
 
   // -- Internal helpers ---------------------------------------------------
@@ -318,34 +252,175 @@ export class HIP4MarketDataAdapter implements PredictionMarketDataAdapter {
     return data;
   }
 
-  /**
-   * Subscribe to a WebSocket channel via the shared HIP4Client.
-   *
-   * @param channel   Response channel name used for message routing (e.g. "l2Book").
-   * @param coin      Coin filter ("*" for channel-only subscriptions).
-   * @param onData    Callback fired on each matching message.
-   * @param subscriptionType  Wire type sent in the subscribe message. Defaults
-   *   to `channel`. Needed when HL uses a different name in the subscribe
-   *   request vs the response channel (e.g. send "activeAssetCtx" but receive
-   *   on "activeSpotAssetCtx" for spot assets).
-   */
+  private ensureWs(): WsPoolEntry {
+    if (this.wsPool) return this.wsPool;
+
+    const ws = new WebSocket(this.client.wsUrl);
+    const entry: WsPoolEntry = {
+      ws,
+      subscriptions: new Map(),
+      refCount: 0,
+    };
+
+    ws.onmessage = (event: MessageEvent) => {
+      try {
+        const msg = JSON.parse(String(event.data)) as {
+          channel?: string;
+          data?: unknown;
+        };
+        if (!msg.channel || msg.data === undefined) return;
+
+        // Per-coin subscriptions are stored as "channel:coin" (e.g. "l2Book:#100").
+        // HL sends channel without coin — the coin is inside data.
+        // For l2Book: data is { coin, ... }. For trades: data is [{ coin, ... }, ...].
+        const raw = msg.data;
+        const dataCoin = Array.isArray(raw)
+          ? (raw[0] as Record<string, unknown>)?.coin as string | undefined
+          : (raw as Record<string, unknown>)?.coin as string | undefined;
+        if (dataCoin) {
+          const coinSubs = entry.subscriptions.get(`${msg.channel}:${dataCoin}`);
+          if (coinSubs) {
+            for (const cb of coinSubs) cb(msg.data);
+          }
+        }
+
+        // Channel-only subscriptions (e.g. "allMids" without a coin)
+        const channelSubs = entry.subscriptions.get(msg.channel);
+        if (channelSubs) {
+          for (const cb of channelSubs) cb(msg.data);
+        }
+      } catch {
+        // Ignore unparseable frames
+      }
+    };
+
+    ws.onopen = () => {
+      // Reset reconnect counter on successful connection
+      this.reconnectAttempts = 0;
+    };
+
+    ws.onclose = () => {
+      const savedSubscriptions = new Map(entry.subscriptions);
+      const savedRefCount = entry.refCount;
+      this.wsPool = null;
+
+      if (this.destroyed) return;
+      if (savedSubscriptions.size === 0) return;
+      if (this.reconnectAttempts >= HIP4MarketDataAdapter.MAX_RECONNECT_ATTEMPTS) {
+        this.client.log("error", `WS max reconnect attempts (${HIP4MarketDataAdapter.MAX_RECONNECT_ATTEMPTS}) reached, giving up`);
+        return;
+      }
+
+      const delay = Math.min(
+        1000 * Math.pow(2, this.reconnectAttempts),
+        HIP4MarketDataAdapter.MAX_RECONNECT_DELAY,
+      );
+      this.reconnectAttempts++;
+      this.client.log("warn", `WS connection closed, reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${HIP4MarketDataAdapter.MAX_RECONNECT_ATTEMPTS})`);
+
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        if (this.destroyed) return;
+
+        // Create a new WS and restore subscriptions
+        const newEntry = this.ensureWs();
+        newEntry.refCount = savedRefCount;
+
+        for (const [subKey, callbacks] of savedSubscriptions) {
+          newEntry.subscriptions.set(subKey, new Set(callbacks));
+
+          // Re-send subscription messages once connected
+          const colonIdx = subKey.indexOf(":");
+          const channel = colonIdx >= 0 ? subKey.slice(0, colonIdx) : subKey;
+          const coin = colonIdx >= 0 ? subKey.slice(colonIdx + 1) : "*";
+
+          const sendResub = () => {
+            if (coin === "*") {
+              newEntry.ws.send(
+                JSON.stringify({
+                  method: "subscribe",
+                  subscription: { type: channel },
+                }),
+              );
+            } else {
+              newEntry.ws.send(
+                JSON.stringify({
+                  method: "subscribe",
+                  subscription: { type: channel, coin },
+                }),
+              );
+            }
+          };
+
+          if (newEntry.ws.readyState === WebSocket.OPEN) {
+            sendResub();
+          } else {
+            newEntry.ws.addEventListener("open", sendResub, { once: true });
+          }
+        }
+      }, delay);
+    };
+
+    this.wsPool = entry;
+    return entry;
+  }
+
   private subscribeWs(
     channel: string,
     coin: string,
     onData: (data: unknown) => void,
-    subscriptionType?: string,
   ): Unsubscribe {
-    const wireType = subscriptionType ?? channel;
-    const subscription: Record<string, unknown> = { type: wireType };
-    if (coin !== "*") {
-      subscription.coin = coin;
+    const entry = this.ensureWs();
+    entry.refCount++;
+
+    const subKey = coin === "*" ? channel : `${channel}:${coin}`;
+
+    if (!entry.subscriptions.has(subKey)) {
+      entry.subscriptions.set(subKey, new Set());
+    }
+    entry.subscriptions.get(subKey)!.add(onData);
+
+    const sendSub = () => {
+      if (coin === "*") {
+        entry.ws.send(
+          JSON.stringify({
+            method: "subscribe",
+            subscription: { type: channel },
+          }),
+        );
+      } else {
+        entry.ws.send(
+          JSON.stringify({
+            method: "subscribe",
+            subscription: { type: channel, coin },
+          }),
+        );
+      }
+    };
+
+    if (entry.ws.readyState === WebSocket.OPEN) {
+      sendSub();
+    } else {
+      entry.ws.addEventListener("open", sendSub, { once: true });
     }
 
-    return this.client.subscribe(
-      subscription as { type: string },
-      onData,
-      wireType !== channel ? { responseChannel: channel } : undefined,
-    );
+    return () => {
+      // Use current wsPool (may differ from captured entry after reconnect)
+      const current = this.wsPool;
+      if (!current) return;
+      const subs = current.subscriptions.get(subKey);
+      if (subs) {
+        subs.delete(onData);
+        if (subs.size === 0) {
+          current.subscriptions.delete(subKey);
+        }
+      }
+      current.refCount--;
+      if (current.refCount <= 0 && current.ws.readyState === WebSocket.OPEN) {
+        current.ws.close();
+        this.wsPool = null;
+      }
+    };
   }
 }
 
@@ -362,39 +437,12 @@ function isL2BookData(data: unknown): data is HLWsL2BookData {
   );
 }
 
-function isAllMidsData(data: unknown): data is HLWsAllMidsData {
+function isAllMidsData(
+  data: unknown,
+): data is { mids: Record<string, string> } {
   return typeof data === "object" && data !== null && "mids" in data;
 }
 
 function isTradesData(data: unknown): data is HLTrade[] {
   return Array.isArray(data);
-}
-
-function isActiveAssetCtxData(
-  data: unknown,
-): data is HLWsActiveSpotAssetCtxData {
-  return (
-    typeof data === "object" && data !== null && "coin" in data && "ctx" in data
-  );
-}
-
-function isActivePerpAssetCtxData(
-  data: unknown,
-): data is HLWsActivePerpAssetCtxData {
-  return (
-    typeof data === "object" && data !== null && "coin" in data && "ctx" in data
-  );
-}
-
-function isSpotAssetCtxsData(
-  data: unknown,
-): data is HLWsSpotAssetCtxsData {
-  return (
-    Array.isArray(data) &&
-    data.length > 0 &&
-    typeof data[0] === "object" &&
-    data[0] !== null &&
-    "coin" in data[0] &&
-    "markPx" in data[0]
-  );
 }

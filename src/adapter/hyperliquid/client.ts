@@ -8,28 +8,18 @@
 
 import type {
   HLAllMids,
-  HLBatchModifyAction,
   HLCancelAction,
-  HLCancelResponse,
   HLCandle,
   HLClearinghouseState,
   HLExchangeResponse,
-  HLExtraAgent,
   HLFill,
   HLFrontendOrder,
   HLL2Book,
-  HLModifyAction,
-  HLModifyResponse,
   HLOrderAction,
   HLOutcomeMeta,
-  HLReferralState,
-  HLSettledOutcome,
   HLSignature,
   HLSpotClearinghouseState,
   HLTrade,
-  HLUserAbstraction,
-  HLUserFees,
-  HLUserRoleResponse,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -68,35 +58,6 @@ export interface HIP4ClientConfig {
     msg: string,
     data?: unknown,
   ) => void;
-}
-
-/**
- * Canonical value for info queries that should span every perp dex.
- * Replaces reliance on DEX abstraction, which Hyperliquid is deprecating.
- */
-export const ALL_DEXS = "ALL_DEXS";
-
-/**
- * Predicate: does this abstraction mode require a `usdClassTransfer`
- * step to move USDC between spot and perps silos?
- *
- * - `disabled` (Standard): spot/perp split, transfer required.
- * - `dexAbstraction`: unifies multiple perp DEXes only — spot/perp
- *   split is preserved, transfer still required. Verified empirically:
- *   addresses on `dexAbstraction` carry independent spot-USDC and
- *   perp-`withdrawable` balances.
- * - `unifiedAccount` / `portfolioMargin`: spot↔perp merged into a
- *   single balance — `usdClassTransfer` is rejected with `"Action
- *   disabled when unified account is active"`.
- */
-export function isUsdClassTransferRequired(
-  abstraction: HLUserAbstraction,
-): boolean {
-  return (
-    abstraction === "default" ||
-    abstraction === "disabled" ||
-    abstraction === "dexAbstraction"
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -192,13 +153,6 @@ export class HIP4Client {
     return this.infoPost<HLOutcomeMeta>({ type: "outcomeMeta" });
   }
 
-  async fetchSettledOutcome(outcome: number): Promise<HLSettledOutcome | null> {
-    return this.infoPost<HLSettledOutcome | null>({
-      type: "settledOutcome",
-      outcome,
-    });
-  }
-
   async fetchL2Book(coin: string): Promise<HLL2Book> {
     return this.infoPost<HLL2Book>({ type: "l2Book", coin });
   }
@@ -235,12 +189,8 @@ export class HIP4Client {
   }
 
   /** Spot meta + asset contexts (includes markPx / oracle price for each spot asset) */
-  async fetchSpotAssetCtx(
-    spotIndex: number,
-  ): Promise<{ markPx: string; midPx: string } | null> {
-    const data = await this.infoPost<
-      [unknown, Array<{ markPx?: string; midPx?: string; coin?: string }>]
-    >({
+  async fetchSpotAssetCtx(spotIndex: number): Promise<{ markPx: string; midPx: string } | null> {
+    const data = await this.infoPost<[unknown, Array<{ markPx?: string; midPx?: string; coin?: string }>]>({
       type: "spotMetaAndAssetCtxs",
     });
     const ctx = data[1]?.[spotIndex];
@@ -271,77 +221,7 @@ export class HIP4Client {
       endTime,
       aggregateByTime: true,
       reversed: true,
-      dex: ALL_DEXS,
     });
-  }
-
-  /** Approved extra agents for a user */
-  async fetchExtraAgents(user: string): Promise<HLExtraAgent[]> {
-    return this.infoPost<HLExtraAgent[]>({ type: "extraAgents", user });
-  }
-
-  /**
-   * Check the maximum builder fee a user has approved for a given builder.
-   * Returns the approved fee in tenths of a basis point (e.g. 100 = 0.1%).
-   * Returns 0 if no approval exists.
-   */
-  async fetchMaxBuilderFee(user: string, builder: string): Promise<number> {
-    const result = await this.infoPost<string | number>({
-      type: "maxBuilderFee",
-      user,
-      builder: builder.toLowerCase(),
-    });
-    return result ? Number(result) : 0;
-  }
-
-  /**
-   * Fetch all approved builder addresses for a user.
-   * Hyperliquid limits each address to a maximum of 3 approved builders.
-   */
-  async fetchApprovedBuilders(user: string): Promise<string[]> {
-    return this.infoPost<string[]>({ type: "approvedBuilders", user });
-  }
-
-  /**
-   * Fetch a user's referral state from Hyperliquid.
-   * Returns the referral state object, or null if no referrer is set.
-   */
-  async fetchReferralState(user: string): Promise<HLReferralState> {
-    return this.infoPost<HLReferralState>({ type: "referral", user });
-  }
-
-  /**
-   * Fetch the role assigned to a user by Hyperliquid.
-   * `role === "missing"` indicates the wallet has never interacted with HL.
-   */
-  async fetchUserRole(user: string): Promise<HLUserRoleResponse> {
-    return this.infoPost<HLUserRoleResponse>({ type: "userRole", user });
-  }
-
-  /**
-   * Fetch the user's effective fee schedule (post-discount).
-   * Spot rates (`userSpotCrossRate` / `userSpotAddRate`) are what apply to
-   * HIP-4 outcome closes; opens are 0-fee.
-   */
-  async fetchUserFees(user: string): Promise<HLUserFees> {
-    return this.infoPost<HLUserFees>({ type: "userFees", user });
-  }
-
-  /**
-   * Fetch the user's account abstraction mode.
-   *
-   * Returns one of `"default" | "disabled" | "dexAbstraction" |
-   * "unifiedAccount" | "portfolioMargin"`. Standard accounts return
-   * `"default"` (or `"disabled"`); both keep spot and perp as separate
-   * silos and require a `usdClassTransfer` before `withdraw3`. Only
-   * `"unifiedAccount"` / `"portfolioMargin"` merge the balances and reject
-   * `usdClassTransfer`. Use {@link isUsdClassTransferRequired} to gate the
-   * spot↔perp transfer step in deposit/withdraw flows.
-   *
-   * Endpoint: `POST /info` body `{ type: "userAbstraction", user }`.
-   */
-  async fetchUserAbstraction(user: string): Promise<HLUserAbstraction> {
-    return this.infoPost<HLUserAbstraction>({ type: "userAbstraction", user });
   }
 
   /** Frontend-formatted open orders */
@@ -349,7 +229,6 @@ export class HIP4Client {
     return this.infoPost<HLFrontendOrder[]>({
       type: "frontendOpenOrders",
       user,
-      dex: ALL_DEXS,
     });
   }
 
@@ -374,35 +253,7 @@ export class HIP4Client {
     nonce: number,
     signature: HLSignature,
     vaultAddress: string | null = null,
-  ): Promise<HLCancelResponse> {
-    return this.exchangePost({
-      action,
-      nonce,
-      signature,
-      vaultAddress,
-    });
-  }
-
-  async modifyOrder(
-    action: HLModifyAction,
-    nonce: number,
-    signature: HLSignature,
-    vaultAddress: string | null = null,
-  ): Promise<HLModifyResponse> {
-    return this.exchangePost({
-      action,
-      nonce,
-      signature,
-      vaultAddress,
-    });
-  }
-
-  async batchModifyOrders(
-    action: HLBatchModifyAction,
-    nonce: number,
-    signature: HLSignature,
-    vaultAddress: string | null = null,
-  ): Promise<HLModifyResponse> {
+  ): Promise<HLExchangeResponse> {
     return this.exchangePost({
       action,
       nonce,
@@ -422,147 +273,6 @@ export class HIP4Client {
       nonce,
       signature,
     });
-  }
-
-  // -- WebSocket subscriptions -----------------------------------------------
-
-  private ws: WebSocket | null = null;
-  private wsPendingMessages: string[] = [];
-  /** Callbacks keyed by response channel (for message routing). */
-  private wsCallbacks: Map<string, Set<(data: unknown) => void>> = new Map();
-  /** Active subscribe messages as JSON strings (for reconnection). */
-  private wsActiveSubs: Set<string> = new Set();
-
-  /**
-   * Subscribe to a Hyperliquid WebSocket channel.
-   * Returns an unsubscribe function.
-   *
-   * @param options.responseChannel  Channel name HL uses in response messages
-   *   when it differs from `subscription.type` (e.g. subscribe as
-   *   "activeAssetCtx" but receive on "activeSpotAssetCtx").
-   */
-  subscribe(
-    subscription: { type: string; [key: string]: unknown },
-    onData: (data: unknown) => void,
-    options?: { responseChannel?: string },
-  ): () => void {
-    const responseChannel = options?.responseChannel ?? subscription.type;
-    this.ensureWs();
-
-    // Send subscribe to HL
-    const subMsg = JSON.stringify({ method: "subscribe", subscription });
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(subMsg);
-    } else {
-      this.wsPendingMessages.push(subMsg);
-    }
-    this.wsActiveSubs.add(subMsg);
-
-    // Register callback for message routing
-    if (!this.wsCallbacks.has(responseChannel)) {
-      this.wsCallbacks.set(responseChannel, new Set());
-    }
-    this.wsCallbacks.get(responseChannel)?.add(onData);
-
-    return () => {
-      // Send unsubscribe to HL
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ method: "unsubscribe", subscription }));
-      }
-      this.wsActiveSubs.delete(subMsg);
-
-      // Remove callback
-      const cbs = this.wsCallbacks.get(responseChannel);
-      if (cbs) {
-        cbs.delete(onData);
-        if (cbs.size === 0) this.wsCallbacks.delete(responseChannel);
-      }
-
-      // Close WS if nothing left
-      if (this.wsCallbacks.size === 0 && this.ws) {
-        this.ws.close();
-        this.ws = null;
-      }
-    };
-  }
-
-  /** Tear down WebSocket and clear all subscriptions. */
-  closeWs(): void {
-    if (this.wsReconnectTimer) {
-      clearTimeout(this.wsReconnectTimer);
-      this.wsReconnectTimer = null;
-    }
-    this.wsReconnectAttempts = 0;
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
-    this.wsCallbacks.clear();
-    this.wsActiveSubs.clear();
-    this.wsPendingMessages = [];
-  }
-
-  private ensureWs(): void {
-    if (this.ws) return;
-    const ws = new WebSocket(this.wsUrl);
-    this.ws = ws;
-    ws.onopen = () => {
-      this.wsReconnectAttempts = 0;
-      for (const msg of this.wsPendingMessages) {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(msg);
-        }
-      }
-      this.wsPendingMessages = [];
-    };
-    ws.onmessage = (event: MessageEvent) => {
-      try {
-        const parsed = JSON.parse(event.data as string) as {
-          channel?: string;
-          data?: unknown;
-        };
-        if (!parsed.channel) return;
-        const cbs = this.wsCallbacks.get(parsed.channel);
-        if (cbs) {
-          for (const cb of cbs) cb(parsed.data);
-        }
-      } catch {
-        // Ignore unparseable frames
-      }
-    };
-    ws.onclose = () => {
-      if (this.ws === ws) {
-        this.ws = null;
-        if (this.wsActiveSubs.size > 0) {
-          this.scheduleReconnect();
-        }
-      }
-    };
-  }
-
-  private wsReconnectAttempts = 0;
-  private wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private wsDestroyed = false;
-
-  private scheduleReconnect(): void {
-    if (this.wsDestroyed) return;
-    if (this.wsReconnectAttempts >= 10) {
-      this.log("warn", "WS max reconnect attempts reached");
-      return;
-    }
-    const delay = Math.min(1000 * 2 ** this.wsReconnectAttempts, 30_000);
-    this.wsReconnectAttempts++;
-    this.wsReconnectTimer = setTimeout(() => {
-      if (this.wsDestroyed || this.wsActiveSubs.size === 0) return;
-      this.ensureWs();
-      for (const msg of this.wsActiveSubs) {
-        if (this.ws?.readyState === WebSocket.OPEN) {
-          this.ws.send(msg);
-        } else {
-          this.wsPendingMessages.push(msg);
-        }
-      }
-    }, delay);
   }
 
   // -- Internal -------------------------------------------------------------

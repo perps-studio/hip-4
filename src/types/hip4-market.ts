@@ -13,7 +13,7 @@ import type { HLOutcome, HLQuestion } from "../adapter/hyperliquid/types";
 // Market type discriminant
 // ---------------------------------------------------------------------------
 
-export type MarketType = "defaultBinary" | "labelledBinary" | "multiOutcome" | "priceBucket";
+export type MarketType = "defaultBinary" | "labelledBinary" | "multiOutcome";
 
 // ---------------------------------------------------------------------------
 // Side (shared across all types)
@@ -91,57 +91,10 @@ export interface MultiOutcomeMarket extends BaseMarket {
 }
 
 // ---------------------------------------------------------------------------
-// priceBucket  - recurring multi-bucket price markets
-//
-// The `class:priceBucket` tag lives on the parent QUESTION's description, not
-// the outcome's. Each outcome under that question represents one bucket
-// defined by adjacent priceThresholds. N thresholds → N+1 buckets, plus a
-// settlement fallback outcome.
-//
-// Example question description:
-//   class:priceBucket|underlying:BTC|expiry:20260505-1700|priceThresholds:81015.3,81258.7|period:15m
-// ---------------------------------------------------------------------------
-
-export interface PriceBucketMarket extends BaseMarket {
-  type: "priceBucket";
-  /** Underlying asset symbol (e.g. "BTC") */
-  underlying: string;
-  /** Expiry timestamp as Date (UTC) */
-  expiry: Date;
-  /** Sorted ascending price thresholds. N thresholds → N+1 buckets. */
-  priceThresholds: number[];
-  /** Period string (e.g. "15m", "1h", "1d") */
-  period: string;
-  /** Parent question ID */
-  questionId: number;
-  /** Parent question name */
-  questionName: string;
-  /** Parent question description (the raw priceBucket spec) */
-  questionDescription: string;
-  /** Whether this is the settlement fallback outcome */
-  isFallback: boolean;
-  /**
-   * Index of this bucket within the question's namedOutcomes array.
-   * -1 when this is the fallback outcome.
-   */
-  bucketIndex: number;
-  /** Lower bound of this bucket (inclusive). null = unbounded below. */
-  lowerBound: number | null;
-  /** Upper bound of this bucket (exclusive). null = unbounded above. */
-  upperBound: number | null;
-  /** Raw question from API */
-  rawQuestion: HLQuestion;
-}
-
-// ---------------------------------------------------------------------------
 // Discriminated union
 // ---------------------------------------------------------------------------
 
-export type HIP4Market =
-  | DefaultBinaryMarket
-  | LabelledBinaryMarket
-  | MultiOutcomeMarket
-  | PriceBucketMarket;
+export type HIP4Market = DefaultBinaryMarket | LabelledBinaryMarket | MultiOutcomeMarket;
 
 // ---------------------------------------------------------------------------
 // fetchMarkets params

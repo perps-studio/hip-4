@@ -17,21 +17,16 @@ import type {
 import type {
   HIP4Market,
   FetchMarketsParams,
+  MarketType,
   MarketsByType,
   MarketsByQuestion,
   MultiOutcomeMarket,
 } from "../../types/hip4-market";
-import type { PredictionEventAdapter, Unsubscribe } from "../types";
+import type { PredictionEventAdapter } from "../types";
 import type { HIP4Client } from "./client";
 import { sideCoin } from "./client";
 import { classifyAllOutcomes } from "./market-classification";
-import type {
-  HLOutcome,
-  HLOutcomeMeta,
-  HLQuestion,
-  HLWsOutcomeMetaUpdate,
-  HLWsOutcomeMetaUpdates,
-} from "./types";
+import type { HLOutcome, HLOutcomeMeta, HLQuestion } from "./types";
 
 // ---------------------------------------------------------------------------
 // Categories
@@ -191,53 +186,6 @@ export class HIP4EventAdapter implements PredictionEventAdapter {
     if (this.sideNames) return;
     const meta = await this.client.fetchOutcomeMeta();
     this.populateSideNames(meta);
-  }
-
-  /**
-   * Subscribe to live outcome-meta updates (HIP-4 catalog changes).
-   *
-   * Each frame is an array of one or more updates. The handler is invoked
-   * once per update with the discriminated payload. Internally we also:
-   *   - extend `sideNames` for newly created outcomes (so `getSideNameResolver`
-   *     returns real names instead of falling back to "Side 0/1")
-   *   - invalidate the events + markets caches so the next read refetches
-   *     and reflects the change
-   *
-   * Returns an unsubscribe callback.
-   */
-  subscribeOutcomeMetaUpdates(
-    onData: (update: HLWsOutcomeMetaUpdate) => void,
-  ): Unsubscribe {
-    return this.client.subscribe(
-      { type: "outcomeMetaUpdates" },
-      (raw: unknown) => {
-        if (!Array.isArray(raw)) return;
-        const updates = raw as HLWsOutcomeMetaUpdates;
-        for (const update of updates) {
-          this.applyMetaUpdate(update);
-          onData(update);
-        }
-      },
-    );
-  }
-
-  private applyMetaUpdate(update: HLWsOutcomeMetaUpdate): void {
-    if ("outcomeCreated" in update) {
-      const spec = update.outcomeCreated;
-      // Grow sideNames in place so callers using getSideNameResolver pick
-      // up the new outcome immediately. populateSideNames is gated on
-      // `!sideNames` and won't overwrite existing entries.
-      if (this.sideNames && spec.sideSpecs.length >= 2) {
-        this.sideNames.set(spec.outcome, [
-          spec.sideSpecs[0].name,
-          spec.sideSpecs[1].name,
-        ]);
-      }
-    }
-    // All four variants change the catalog — drop the time-based caches so
-    // the next loadEvents/loadMarkets call refetches.
-    this.cache = null;
-    this.metaCache = null;
   }
 
   private populateSideNames(meta: HLOutcomeMeta): void {

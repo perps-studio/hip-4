@@ -18,7 +18,6 @@ export interface HLOutcome {
 
 export interface HLSideSpec {
   name: string;
-  token?: number;
 }
 
 export interface HLQuestion {
@@ -28,26 +27,6 @@ export interface HLQuestion {
   fallbackOutcome: number;
   namedOutcomes: number[];
   settledNamedOutcomes: number[];
-}
-
-export interface HLSettledOutcome {
-  spec: HLOutcome;
-  settleFraction: string;
-  details: string;
-  /**
-   * Parent question, returned by HL for outcomes that belong to a question
-   * group (priceBucket, multiOutcome). Omitted for standalone priceBinary
-   * outcomes. The `description` here is the parent question's description
-   * (e.g. `class:priceBucket|underlying:BTC|...`), which is what consumers
-   * need to recover bucket bounds after the question itself has been
-   * removed from `outcomeMeta`.
-   */
-  question?: {
-    /** Inner shape mirrors HL's API: `{ settled: <questionId> }`. */
-    question: { settled: number };
-    name: string;
-    description: string;
-  };
 }
 
 // -- L2 book (standard HL format) -------------------------------------------
@@ -170,11 +149,6 @@ export interface HLFrontendOrder {
   orderType: string;
   tif: string | null;
   cloid: string | null;
-  triggerCondition?: string;
-  isTrigger?: boolean;
-  triggerPx?: string;
-  children?: unknown[];
-  isPositionTpsl?: boolean;
 }
 
 // -- userFills --------------------------------------------------------------
@@ -194,12 +168,6 @@ export interface HLFill {
   fee: string;
   tid: number;
   feeToken: string;
-}
-
-export interface HLWsUserFillsEvent {
-  readonly isSnapshot: boolean;
-  readonly user: string;
-  readonly fills: HLFill[];
 }
 
 // -- Exchange API (order placement) -----------------------------------------
@@ -265,69 +233,6 @@ export type HLOrderStatus =
       error: string;
     };
 
-// -- userOutcome actions ----------------------------------------------------
-//
-// HIP-4 share-conversion primitives. All four variants are wrapped under the
-// same `type: "userOutcome"` envelope, with a single sub-action key naming
-// the operation. Signed via L1 agent signing (same path as `order` / `cancel`).
-//
-// Ref: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint
-//   - splitOutcome: X quote → X Yes shares + X No shares of one outcome
-//   - mergeOutcome: X Yes + X No shares of one outcome → X quote (null = max)
-//   - mergeQuestion: X Yes shares from every outcome of a question → X quote
-//   - negateQuestion: X No shares of one outcome → X Yes shares of every other
-//                     outcome in the same question
-
-export interface HLSplitOutcomeAction {
-  type: "userOutcome";
-  splitOutcome: { outcome: number; amount: string };
-}
-
-export interface HLMergeOutcomeAction {
-  type: "userOutcome";
-  mergeOutcome: { outcome: number; amount: string | null };
-}
-
-export interface HLMergeQuestionAction {
-  type: "userOutcome";
-  mergeQuestion: { question: number; amount: string | null };
-}
-
-/**
- * The on-wire sub-key is `negateOutcome` (matching the page heading), NOT
- * `negateQuestion` as the docs body's example renders it. Confirmed by
- * inspecting Hyperliquid's own testnet "Convert Outcomes" UI on 2026-05-07
- * — its `/exchange` POST sends `{ negateOutcome: { question, outcome,
- * amount } }`. The docs body is a typo; the heading is correct.
- */
-export interface HLNegateOutcomeAction {
-  type: "userOutcome";
-  negateOutcome: { question: number; outcome: number; amount: string };
-}
-
-export type HLUserOutcomeAction =
-  | HLSplitOutcomeAction
-  | HLMergeOutcomeAction
-  | HLMergeQuestionAction
-  | HLNegateOutcomeAction;
-
-// -- scheduleCancel action --------------------------------------------------
-//
-// HL "dead-man's switch": registers a future timestamp at which every
-// open order belonging to the signing agent will be cancelled. Per-agent,
-// not per-order — submitting a new schedule replaces the previous one.
-// Passing `time: null` clears the schedule.
-//
-// Used to prevent resting limit orders from sitting through a market's
-// settlement auction: arm 1h before expiry, never get picked off by a
-// stale quote.
-
-export interface HLScheduleCancelAction {
-  type: "scheduleCancel";
-  /** Unix milliseconds at which HL cancels every open order from this agent. `null` clears. */
-  time: number | null;
-}
-
 // -- Cancel action ----------------------------------------------------------
 
 export interface HLCancelAction {
@@ -340,57 +245,6 @@ export interface HLCancelRequest {
   nonce: number;
   signature: HLSignature;
   vaultAddress: string | null;
-}
-
-export type HLCancelStatus = "success" | { error: string };
-
-export interface HLCancelResponse {
-  status: "ok" | "err";
-  response?: {
-    type: "cancel";
-    data: {
-      statuses: HLCancelStatus[];
-    };
-  };
-}
-
-// -- Modify action ----------------------------------------------------------
-
-/**
- * Modify an existing order. HL preserves queue priority for size-only
- * changes; price changes move the order to the back of the queue at the
- * new level. See https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint
- */
-export interface HLModifyAction {
-  type: "modify";
-  oid: number;
-  order: HLOrderWire;
-}
-
-export interface HLBatchModifyAction {
-  type: "batchModify";
-  modifies: Array<{
-    oid: number;
-    order: HLOrderWire;
-  }>;
-}
-
-/**
- * HL's modify response. On success, `response` is the structured object
- * with per-order statuses. On failure (`status: "err"`), HL returns the
- * error reason as a plain string in `response` — surface it instead of
- * discarding the payload.
- */
-export interface HLModifyResponse {
-  status: "ok" | "err";
-  response?:
-    | {
-        type: "modify" | "batchModify";
-        data: {
-          statuses: HLOrderStatus[];
-        };
-      }
-    | string;
 }
 
 // -- WebSocket messages -----------------------------------------------------
@@ -407,20 +261,6 @@ export interface HLWsL2BookData {
     Array<{ px: string; sz: string; n: number }>,
     Array<{ px: string; sz: string; n: number }>,
   ];
-  spread?: string;
-}
-
-/** BBO (Best Bid and Offer) WebSocket data — sent when the top-of-book changes. */
-export interface HLWsBboData {
-  coin: string;
-  time: number;
-  bbo: [HLWsBboLevel | null, HLWsBboLevel | null]; // [bestBid, bestAsk]
-}
-
-export interface HLWsBboLevel {
-  px: string;
-  sz: string;
-  n: number;
 }
 
 export interface HLWsTradeData {
@@ -431,206 +271,6 @@ export interface HLWsTradeData {
   time: number;
   hash: string;
   tid: number;
-}
-
-// -- allMids (WebSocket) ----------------------------------------------------
-
-export interface HLWsAllMidsData {
-  mids: Record<string, string>;
-}
-
-// -- activeAssetCtx (WebSocket) ---------------------------------------------
-//
-// HL subscription type is "activeAssetCtx", but the response channel differs
-// based on asset class:
-//   - Spot assets (HIP-4 prediction tokens): channel = "activeSpotAssetCtx"
-//   - Perp assets: channel = "activeAssetCtx"
-//
-// We currently only handle spot (prediction markets). If perps support is
-// added, a second subscription or a channel-aware router will be needed.
-
-export interface HLWsActiveSpotAssetCtxData {
-  coin: string;
-  ctx: {
-    dayNtlVlm: string;
-    markPx: string;
-    midPx: string | null;
-    prevDayPx: string;
-    circulatingSupply: string;
-    coin: string;
-    totalSupply: string;
-    dayBaseVlm: string;
-  };
-}
-
-/** Single item from the bulk spotAssetCtxs WS subscription (flat, no ctx wrapper). */
-export interface HLWsSpotAssetCtxItem {
-  coin: string;
-  dayNtlVlm: string;
-  markPx: string;
-  midPx: string | null;
-  prevDayPx: string;
-  circulatingSupply: string;
-  totalSupply: string;
-  dayBaseVlm: string;
-}
-
-/** Bulk spot asset context WS response — flat array from spotAssetCtxs subscription. */
-export type HLWsSpotAssetCtxsData = HLWsSpotAssetCtxItem[];
-
-export interface HLWsActivePerpAssetCtxData {
-  coin: string;
-  ctx: {
-    markPx: string;
-    oraclePx: string;
-    funding: string;
-    openInterest: string;
-    dayNtlVlm: string;
-    premium: string;
-    prevDayPx: string;
-  };
-}
-
-// -- Trades WS event (array of trades) --------------------------------------
-
-export type HLWsTradesEvent = HLTrade[];
-
-// -- outcomeMetaUpdates (WebSocket) -----------------------------------------
-//
-// Streams every change to the HIP-4 outcome catalog: new outcomes/questions
-// created, outcomes/questions settled, question metadata updated. Lets a
-// client keep its outcomeMeta cache fresh without polling.
-//
-// Subscription:  { "type": "outcomeMetaUpdates" }
-// Response chan: "outcomeMetaUpdates"
-//
-// HL's docs type `WsOutcomeMetaUpdates` as a 1-element tuple, but the wire
-// frame is a JSON array — modeled here as a plain array so callers don't
-// have to special-case multi-update batches if HL emits them.
-
-export interface HLWsOutcomeMetaSideSpec {
-  name: string;
-}
-
-export interface HLWsOutcomeSpec {
-  outcome: number;
-  name: string;
-  description: string;
-  sideSpecs: [HLWsOutcomeMetaSideSpec, HLWsOutcomeMetaSideSpec];
-}
-
-export interface HLWsQuestionSpec {
-  question: number;
-  name: string;
-  description: string;
-  fallbackOutcome: number;
-  namedOutcomes: number[];
-  settledNamedOutcomes: number[];
-}
-
-export type HLWsOutcomeMetaUpdate =
-  | { outcomeCreated: HLWsOutcomeSpec }
-  | { outcomeSettled: number }
-  | { questionUpdated: HLWsQuestionSpec }
-  | { questionSettled: number };
-
-export type HLWsOutcomeMetaUpdates = HLWsOutcomeMetaUpdate[];
-
-// -- User WS event wrappers -------------------------------------------------
-
-export interface HLWsSpotStateEvent {
-  user: `0x${string}`;
-  spotState: HLSpotClearinghouseState;
-}
-
-export interface HLWsOpenOrdersEvent {
-  dex: string;
-  user: `0x${string}`;
-  orders: HLFrontendOrder[];
-}
-
-export interface HLWsClearinghouseStateEvent {
-  dex: string;
-  user: `0x${string}`;
-  clearinghouseState: HLClearinghouseState;
-}
-
-// -- extraAgents ------------------------------------------------------------
-
-export interface HLExtraAgent {
-  address: `0x${string}`;
-  name: string;
-  validUntil: number;
-}
-
-// -- User role -------------------------------------------------------------
-
-export interface HLUserRoleResponse {
-  /** Role assigned to the address by Hyperliquid (e.g. "user", "subAccount", "missing"). */
-  role?: string;
-}
-
-// -- Account abstraction mode -----------------------------------------------
-
-/**
- * Account abstraction mode reported by the `userAbstraction` info endpoint.
- *
- * - `default` — standard mode returned by HL for regular accounts. Spot
- *   and per-perp-DEX wallets are separate. `usdClassTransfer` required.
- * - `disabled` — legacy name for the same classic Standard mode; treated
- *   identically to `"default"`. Kept for backwards compatibility.
- * - `dexAbstraction` — unifies multiple perp DEXes into one balance, but
- *   the spot/perp split is preserved. `usdClassTransfer` is still
- *   required and still allowed.
- * - `unifiedAccount` — spot ↔ perps balances merged into a single balance.
- *   `usdClassTransfer` is rejected.
- * - `portfolioMargin` — unified account plus cross-asset portfolio margin.
- *   `usdClassTransfer` is rejected.
- *
- * Only `unifiedAccount` and `portfolioMargin` trigger the API rejection
- * `"Action disabled when unified account is active"`.
- */
-export type HLUserAbstraction =
-  | "default"
-  | "disabled"
-  | "dexAbstraction"
-  | "unifiedAccount"
-  | "portfolioMargin";
-
-// -- User fees --------------------------------------------------------------
-
-/**
- * Response shape of Hyperliquid's `userFees` info request.
- * Rates are decimal strings (e.g. "0.000538" = 0.0538%).
- *
- * For HIP-4 outcome markets (spot-style), use `userSpotCrossRate`
- * (taker) and `userSpotAddRate` (maker) — these already include
- * tier, referral, staking, and aligned-quote-asset discounts.
- */
-export interface HLUserFees {
-  userCrossRate: string;
-  userAddRate: string;
-  userSpotCrossRate: string;
-  userSpotAddRate: string;
-  activeReferralDiscount?: string;
-  activeStakingDiscount?: {
-    discount: string;
-    bpsOfMaxSupply: string;
-  } | null;
-}
-
-// -- Referral state ---------------------------------------------------------
-
-export interface HLReferralState {
-  /** The referrer's address, if set */
-  referredBy?: {
-    code: string;
-    referrer: string;
-  } | null;
-  /** Cumulative referral rewards info */
-  cumVlm?: string;
-  unclaimedRewards?: string;
-  claimedRewards?: string;
 }
 
 // -- Signer interface -------------------------------------------------------
