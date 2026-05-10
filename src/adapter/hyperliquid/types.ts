@@ -311,6 +311,23 @@ export type HLUserOutcomeAction =
   | HLMergeQuestionAction
   | HLNegateOutcomeAction;
 
+// -- scheduleCancel action --------------------------------------------------
+//
+// HL "dead-man's switch": registers a future timestamp at which every
+// open order belonging to the signing agent will be cancelled. Per-agent,
+// not per-order — submitting a new schedule replaces the previous one.
+// Passing `time: null` clears the schedule.
+//
+// Used to prevent resting limit orders from sitting through a market's
+// settlement auction: arm 1h before expiry, never get picked off by a
+// stale quote.
+
+export interface HLScheduleCancelAction {
+  type: "scheduleCancel";
+  /** Unix milliseconds at which HL cancels every open order from this agent. `null` clears. */
+  time: number | null;
+}
+
 // -- Cancel action ----------------------------------------------------------
 
 export interface HLCancelAction {

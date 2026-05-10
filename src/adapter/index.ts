@@ -72,6 +72,7 @@ export type {
   HLOutcomeMeta,
   HLQuestion,
   HLReferralState,
+  HLScheduleCancelAction,
   HLSettledOutcome,
   HLSignature,
   HLSpotClearinghouseState,
