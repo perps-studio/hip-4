@@ -272,9 +272,11 @@ describe("mapTif (via order wire)", () => {
     expect(t).toEqual({ limit: { tif: "Gtc" } });
   });
 
-  it("limit FOK → Ioc", async () => {
-    const t = await getOrderType("limit", "FOK");
-    expect(t).toEqual({ limit: { tif: "Ioc" } });
+  it("limit FOK is rejected (HL has no Fill-or-Kill)", async () => {
+    // HL's "Ioc" = Fill-and-Kill (allows partial fills), not Fill-or-Kill.
+    // The SDK rejects FOK explicitly so callers don't silently get
+    // partial-fill behavior they didn't ask for. Use FAK or GTC instead.
+    await expect(getOrderType("limit", "FOK")).rejects.toThrow(/FOK/i);
   });
 
   it("limit FAK → Ioc", async () => {

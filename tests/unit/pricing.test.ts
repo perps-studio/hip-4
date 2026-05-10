@@ -54,8 +54,12 @@ describe("roundToTick", () => {
   it("rounds 0.55123 to nearest tick for price ~0.55", () => {
     const result = roundToTick(0.55123);
     const tick = computeTickSize(0.55123);
-    // Result should be divisible by tick
-    expect(result % tick).toBeCloseTo(0, 10);
+    // Result should land on a tick. Use ratio-based check rather than `%`
+    // to avoid float-modulo amplifying representation error (0.55123 has
+    // no exact IEEE-754 representation, so `result % tick` produces ~1e-8
+    // residue even when `result` is mathematically aligned).
+    const ticks = result / tick;
+    expect(Math.abs(ticks - Math.round(ticks))).toBeLessThan(1e-6);
     expect(result).toBeCloseTo(0.55123, 5);
   });
 
