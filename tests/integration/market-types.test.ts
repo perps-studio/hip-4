@@ -17,7 +17,12 @@ import type {
   MarketType,
 } from "../../src/types/hip4-market";
 
-const VALID_TYPES: MarketType[] = ["defaultBinary", "labelledBinary", "multiOutcome"];
+const VALID_TYPES: MarketType[] = [
+  "defaultBinary",
+  "labelledBinary",
+  "multiOutcome",
+  "priceBucket",
+];
 
 describe("market classification (testnet)", { timeout: 30_000 }, () => {
   let adapter: PredictionsAdapter;

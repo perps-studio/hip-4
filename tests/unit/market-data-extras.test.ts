@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { HIP4Client } from "../../src/adapter/hyperliquid/client";
+import { HIP4Client } from "../../src/adapter/hyperliquid/client";
 import { HIP4MarketDataAdapter } from "../../src/adapter/hyperliquid/market-data";
 import type { HLCandle } from "../../src/adapter/hyperliquid/types";
 
@@ -50,10 +50,14 @@ class MockWebSocket {
 }
 
 // ---------------------------------------------------------------------------
-// Mock client
+// Test client factories
+//
+// fetchCandles tests use a fetch-stubbed client (we never touch WS there).
+// WS-subscription tests use a real HIP4Client so subscribe + dispatch run
+// through production code against the global MockWebSocket stub.
 // ---------------------------------------------------------------------------
 
-function createMockClient(overrides: Partial<HIP4Client> = {}): HIP4Client {
+function createFetchStubClient(overrides: Partial<HIP4Client> = {}): HIP4Client {
   return {
     testnet: true,
     infoUrl: "https://test",
@@ -74,6 +78,10 @@ function createMockClient(overrides: Partial<HIP4Client> = {}): HIP4Client {
     cancelOrder: vi.fn(),
     ...overrides,
   } as unknown as HIP4Client;
+}
+
+function createRealClient(): HIP4Client {
+  return new HIP4Client({ testnet: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -109,7 +117,7 @@ describe("fetchCandles", () => {
       },
     ];
 
-    const client = createMockClient({
+    const client = createFetchStubClient({
       fetchCandleSnapshot: vi.fn().mockResolvedValue(rawCandles),
     });
     const adapter = new HIP4MarketDataAdapter(client);
@@ -133,7 +141,7 @@ describe("fetchCandles", () => {
   });
 
   it("uses default 14-day range when startTime/endTime not provided", async () => {
-    const client = createMockClient({
+    const client = createFetchStubClient({
       fetchCandleSnapshot: vi.fn().mockResolvedValue([]),
     });
     const adapter = new HIP4MarketDataAdapter(client);
@@ -156,7 +164,7 @@ describe("fetchCandles", () => {
   });
 
   it("passes custom interval and time range", async () => {
-    const client = createMockClient({
+    const client = createFetchStubClient({
       fetchCandleSnapshot: vi.fn().mockResolvedValue([]),
     });
     const adapter = new HIP4MarketDataAdapter(client);
@@ -196,7 +204,7 @@ describe("WebSocket subscriptions", () => {
   }
 
   it("subscribeOrderBook sends l2Book subscription message", () => {
-    const client = createMockClient();
+    const client = createRealClient();
     const adapter = new HIP4MarketDataAdapter(client);
     const cb = vi.fn();
 
@@ -212,7 +220,7 @@ describe("WebSocket subscriptions", () => {
   });
 
   it("subscribePrice sends allMids subscription message", () => {
-    const client = createMockClient();
+    const client = createRealClient();
     const adapter = new HIP4MarketDataAdapter(client);
     const cb = vi.fn();
 
@@ -228,7 +236,7 @@ describe("WebSocket subscriptions", () => {
   });
 
   it("subscribeTrades sends trades subscription message", () => {
-    const client = createMockClient();
+    const client = createRealClient();
     const adapter = new HIP4MarketDataAdapter(client);
     const cb = vi.fn();
 
@@ -244,15 +252,18 @@ describe("WebSocket subscriptions", () => {
   });
 
   it("routes l2Book message to subscribeOrderBook callback", () => {
-    const client = createMockClient();
+    const client = createRealClient();
     const adapter = new HIP4MarketDataAdapter(client);
     const cb = vi.fn();
 
     adapter.subscribeOrderBook("1758", cb);
 
     const ws = getWs();
+    // HL sends per-coin l2Book messages on the bare "l2Book" channel; the
+    // coin lives in the data payload. Per-coin filtering happens in the
+    // adapter, not via channel-name suffixes.
     ws._receiveMessage({
-      channel: "l2Book:#17580",
+      channel: "l2Book",
       data: {
         coin: "#17580",
         time: 1700000000000,
@@ -271,7 +282,7 @@ describe("WebSocket subscriptions", () => {
   });
 
   it("routes allMids message to subscribePrice callback via wildcard", () => {
-    const client = createMockClient();
+    const client = createRealClient();
     const adapter = new HIP4MarketDataAdapter(client);
     const cb = vi.fn();
 
@@ -300,15 +311,17 @@ describe("WebSocket subscriptions", () => {
   });
 
   it("routes trades message to subscribeTrades callback", () => {
-    const client = createMockClient();
+    const client = createRealClient();
     const adapter = new HIP4MarketDataAdapter(client);
     const cb = vi.fn();
 
     adapter.subscribeTrades("1758", cb);
 
     const ws = getWs();
+    // Trades arrive on the bare "trades" channel as an array; each element
+    // carries its own coin. The adapter filters by coin per subscription.
     ws._receiveMessage({
-      channel: "trades:#17580",
+      channel: "trades",
       data: [
         {
           coin: "#17580",
@@ -331,7 +344,7 @@ describe("WebSocket subscriptions", () => {
   });
 
   it("unsubscribe removes callback and does not fire again", () => {
-    const client = createMockClient();
+    const client = createRealClient();
     const adapter = new HIP4MarketDataAdapter(client);
     const cb = vi.fn();
 
@@ -344,7 +357,7 @@ describe("WebSocket subscriptions", () => {
   });
 
   it("WS closes when last subscription unsubscribes", () => {
-    const client = createMockClient();
+    const client = createRealClient();
     const adapter = new HIP4MarketDataAdapter(client);
 
     const unsub1 = adapter.subscribeOrderBook("1758", vi.fn());
@@ -363,7 +376,7 @@ describe("WebSocket subscriptions", () => {
   });
 
   it("ignores non-JSON WS messages without crashing", () => {
-    const client = createMockClient();
+    const client = createRealClient();
     const adapter = new HIP4MarketDataAdapter(client);
     adapter.subscribeOrderBook("1758", vi.fn());
 
@@ -375,7 +388,7 @@ describe("WebSocket subscriptions", () => {
   });
 
   it("ignores messages without channel or data", () => {
-    const client = createMockClient();
+    const client = createRealClient();
     const adapter = new HIP4MarketDataAdapter(client);
     const cb = vi.fn();
     adapter.subscribeOrderBook("1758", cb);
@@ -386,7 +399,7 @@ describe("WebSocket subscriptions", () => {
   });
 
   it("subscribePrice skips callback when neither side mid is present", () => {
-    const client = createMockClient();
+    const client = createRealClient();
     const adapter = new HIP4MarketDataAdapter(client);
     const cb = vi.fn();
 
@@ -406,7 +419,7 @@ describe("WebSocket subscriptions", () => {
   });
 
   it("destroy stops reconnection and closes WS", () => {
-    const client = createMockClient();
+    const client = createRealClient();
     const adapter = new HIP4MarketDataAdapter(client);
     adapter.subscribeOrderBook("1758", vi.fn());
 

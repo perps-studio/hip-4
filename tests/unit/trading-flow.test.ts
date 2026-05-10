@@ -223,11 +223,15 @@ describe("cancelOrder", () => {
     const signer = createMockSigner();
     await auth.initAuth("0xUSER", signer);
 
-    await adapter.cancelOrder({
-      marketId: "1758",
-      orderId: "99999",
-      outcome: "#17580",
-    });
+    // v2.2 API: cancelOrder takes an array of params and returns
+    // HLCancelResponse (was single param + void).
+    await adapter.cancelOrder([
+      {
+        marketId: "1758",
+        orderId: "99999",
+        outcome: "#17580",
+      },
+    ]);
 
     expect(signer.signTypedData).toHaveBeenCalledTimes(1);
 
@@ -244,10 +248,12 @@ describe("cancelOrder", () => {
     const adapter = new HIP4TradingAdapter(client, auth);
     await auth.initAuth("0xUSER", createMockSigner());
 
-    await adapter.cancelOrder({
-      marketId: "1758",
-      orderId: "99999",
-    });
+    await adapter.cancelOrder([
+      {
+        marketId: "1758",
+        orderId: "99999",
+      },
+    ]);
 
     const action = (client.cancelOrder as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(action.cancels[0].a).toBe(100017580); // sideAssetId(1758, 0)
@@ -259,11 +265,13 @@ describe("cancelOrder", () => {
     const adapter = new HIP4TradingAdapter(client, auth);
 
     await expect(
-      adapter.cancelOrder({
-        marketId: "1758",
-        orderId: "99999",
-        outcome: "#17580",
-      }),
+      adapter.cancelOrder([
+        {
+          marketId: "1758",
+          orderId: "99999",
+          outcome: "#17580",
+        },
+      ]),
     ).rejects.toThrow("Not authenticated");
   });
 });

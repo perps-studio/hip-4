@@ -168,6 +168,7 @@ describe("HIP4Client", () => {
         endTime: 2000,
         aggregateByTime: true,
         reversed: true,
+        dex: "ALL_DEXS",
       });
     });
   });
@@ -181,7 +182,11 @@ describe("HIP4Client", () => {
       await client.fetchFrontendOpenOrders("0xabc");
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-      expect(body).toEqual({ type: "frontendOpenOrders", user: "0xabc" });
+      expect(body).toEqual({
+        type: "frontendOpenOrders",
+        user: "0xabc",
+        dex: "ALL_DEXS",
+      });
     });
   });
 
