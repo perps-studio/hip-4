@@ -19,6 +19,7 @@ import type {
   HLModifyAction,
   HLOrderAction,
   HLOrderWire,
+  HLScheduleCancelAction,
   HLSignature,
   HLUserOutcomeAction,
 } from "./types";
@@ -597,6 +598,16 @@ export function sortUserOutcomeAction(
   };
 }
 
+/**
+ * Sort a scheduleCancel action into canonical key order. Outer keys:
+ * `type, time`. Time may be `null` to clear an existing schedule.
+ */
+export function sortScheduleCancelAction(
+  action: HLScheduleCancelAction,
+): HLScheduleCancelAction {
+  return { type: action.type, time: action.time };
+}
+
 // ---------------------------------------------------------------------------
 // L1 Action Hash
 // ---------------------------------------------------------------------------
@@ -614,7 +625,8 @@ export function createL1ActionHash(params: {
     | HLCancelAction
     | HLModifyAction
     | HLBatchModifyAction
-    | HLUserOutcomeAction;
+    | HLUserOutcomeAction
+    | HLScheduleCancelAction;
   nonce: number;
   vaultAddress?: string | null;
 }): Uint8Array {
@@ -682,7 +694,8 @@ export async function signL1Action(params: {
     | HLCancelAction
     | HLModifyAction
     | HLBatchModifyAction
-    | HLUserOutcomeAction;
+    | HLUserOutcomeAction
+    | HLScheduleCancelAction;
   nonce: number;
   isTestnet: boolean;
   vaultAddress?: string | null;

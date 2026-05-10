@@ -27,6 +27,7 @@ import {
   sortCancelAction,
   sortModifyAction,
   sortOrderAction,
+  sortScheduleCancelAction,
   sortUserOutcomeAction,
 } from "./signing";
 import {
@@ -36,6 +37,7 @@ import {
   type HLOrderAction,
   type HLOrderStatus,
   type HLOrderWire,
+  type HLScheduleCancelAction,
   type HLUserOutcomeAction,
 } from "./types";
 
@@ -653,6 +655,68 @@ export class HIP4TradingAdapter implements PredictionTradingAdapter {
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : "Unknown user outcome error";
+      return { success: false, error: message };
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // scheduleCancel — HL "dead-man's switch"
+  //
+  // Registers a future timestamp at which HL cancels every open order from
+  // this agent. Per-agent, not per-order: a new schedule replaces the
+  // previous one. Pass `null` to clear an existing schedule.
+  //
+  // Use case: arm 1h before a HIP-4 market's settlement so resting limits
+  // never sit through the auction unprotected.
+  // -------------------------------------------------------------------------
+
+  async scheduleCancel(time: number | null): Promise<WalletActionResult> {
+    const signer = this.auth.getSigner();
+    if (!signer) {
+      return {
+        success: false,
+        error: "Not authenticated. Call auth.initAuth() first.",
+      };
+    }
+
+    try {
+      const action: HLScheduleCancelAction = {
+        type: "scheduleCancel",
+        time,
+      };
+      const sorted = sortScheduleCancelAction(action);
+      const nonce = Date.now();
+      this.client.log("debug", "scheduleCancel action wire", sorted);
+      const signature = await signL1Action({
+        signer,
+        action: sorted,
+        nonce,
+        isTestnet: this.client.testnet,
+      });
+
+      const res = await this.client.submitUserSignedAction(
+        sorted as unknown as Record<string, unknown>,
+        nonce,
+        signature,
+      );
+
+      if (res.status === "ok") return { success: true };
+
+      let errorMsg = "scheduleCancel failed";
+      if (typeof res.response === "string") {
+        errorMsg = res.response;
+      } else if (
+        res.response &&
+        typeof res.response === "object" &&
+        !Array.isArray(res.response)
+      ) {
+        const obj = res.response as Record<string, unknown>;
+        if (typeof obj.error === "string") errorMsg = obj.error;
+      }
+      return { success: false, error: errorMsg };
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Unknown scheduleCancel error";
       return { success: false, error: message };
     }
   }
