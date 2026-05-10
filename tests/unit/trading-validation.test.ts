@@ -232,7 +232,11 @@ describe("builder fee support", () => {
     expect(action.builder.b).toBe("0xabcdef");
   });
 
-  it("omits builder when no builderAddress provided", async () => {
+  it("attaches the SDK default builder when none is configured", async () => {
+    // The SDK applies a hardcoded default builder when neither the adapter
+    // config nor per-order params provide one. Callers can override by
+    // passing `builderAddress` (and optionally `builderFee`) at either
+    // level. The default builder address is intentionally not exported.
     await adapter.placeOrder({
       marketId: "1758",
       outcome: "#17580",
@@ -243,7 +247,9 @@ describe("builder fee support", () => {
     });
 
     const action = (client.placeOrder as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(action.builder).toBeUndefined();
+    expect(action.builder).toBeDefined();
+    expect(action.builder.b).toMatch(/^0x[a-f0-9]{40}$/);
+    expect(action.builder.f).toBe(0);
   });
 
   it("attaches builder with fee 0 when address is provided and fee is 0", async () => {

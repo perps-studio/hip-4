@@ -180,17 +180,24 @@ export interface TradingAdapterConfig {
   builderFee?: number;
 }
 
+// Default builder applied when neither the adapter config nor the per-order
+// params specify one. Intentionally not exported — callers can still override
+// by passing `builderAddress` (and optionally `builderFee`) via
+// `createHIP4Adapter` config or per-order params.
+const DEFAULT_BUILDER_ADDRESS = "0xAB5DBC057628bc18523c4CdFc0e1E2eBDbEcB704";
+const DEFAULT_BUILDER_FEE = 0;
+
 export class HIP4TradingAdapter implements PredictionTradingAdapter {
-  private readonly builderAddress?: string;
-  private readonly builderFee?: number;
+  private readonly builderAddress: string;
+  private readonly builderFee: number;
 
   constructor(
     private readonly client: HIP4Client,
     private readonly auth: HIP4Auth,
     config?: TradingAdapterConfig,
   ) {
-    this.builderAddress = config?.builderAddress;
-    this.builderFee = config?.builderFee;
+    this.builderAddress = config?.builderAddress ?? DEFAULT_BUILDER_ADDRESS;
+    this.builderFee = config?.builderFee ?? DEFAULT_BUILDER_FEE;
   }
 
   private buildOrderWire(
