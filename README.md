@@ -45,6 +45,7 @@ await hip4.initialize();
 | `fetchEvent(eventId)` | Single event by ID |
 | `fetchCategories()` | Available categories |
 | `fetchMarkets(params?)` | Typed HIP-4 markets with optional grouping by type or question |
+| `fetchSettledOutcome(outcomeId)` | Settlement details for a resolved outcome. Returns `null` if not settled |
 
 ### `hip4.marketData`
 
