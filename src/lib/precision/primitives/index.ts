@@ -18,7 +18,6 @@ export {
   abs,
   neg,
   pow,
-  sqrt,
 } from "./core";
 
 export {

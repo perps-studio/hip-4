@@ -15,7 +15,6 @@ export {
   abs,
   neg,
   pow,
-  sqrt,
   compare,
   eq,
   gt,

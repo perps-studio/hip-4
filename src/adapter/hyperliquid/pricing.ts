@@ -23,7 +23,7 @@ export const MIN_NOTIONAL = 10;
 export function computeTickSize(price: number): number {
   if (price <= 0) return 0.00001;
   const d = toDecimal(price);
-  const magnitude = d.log(10).floor();
+  const magnitude = d.floorLog10();
   return toNum(pow("10", magnitude.minus(4).toString()));
 }
 
@@ -42,7 +42,7 @@ export function formatPrice(price: number): string {
   if (price <= 0) return "0";
   const rounded = roundToTick(price);
   const tick = computeTickSize(rounded);
-  const decimals = Math.max(0, -toNum(toDecimal(tick).log(10).floor().toString()));
+  const decimals = Math.max(0, -toNum(toDecimal(tick).floorLog10().toString()));
   let s = fixed(rounded, decimals);
   if (s.includes(".")) {
     s = s.replace(/\.?0+$/, "");

@@ -7,14 +7,13 @@ settings:
 importers:
 
   .:
-    dependencies:
-      decimal.js:
-        specifier: 10.6.0
-        version: 10.6.0
     devDependencies:
       '@vitest/coverage-v8':
         specifier: ^4.1.0
         version: 4.1.0(vitest@4.1.0(vite@8.0.1(esbuild@0.27.4)))
+      decimal.js:
+        specifier: 10.6.0
+        version: 10.6.0
       tsup:
         specifier: ^8.0.0
         version: 8.5.1(postcss@8.5.8)(typescript@5.9.3)
