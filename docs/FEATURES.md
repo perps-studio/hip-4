@@ -50,40 +50,50 @@
 createHIP4Adapter(config)
   └─ HyperliquidHip4Adapter          (implements PredictionsAdapter)
        ├─ HIP4Client                  (HTTP + WS transport)
-       ├─ HIP4EventAdapter            (events, side name resolver)
+       ├─ HIP4EventAdapter            (events, side name resolver, settled outcomes)
        ├─ HIP4MarketDataAdapter       (market data, WS subscriptions)
        ├─ HIP4AccountAdapter          (positions, activity)
-       ├─ HIP4TradingAdapter          (orders, cancels — L1 agent signing)
+       ├─ HIP4TradingAdapter          (orders, cancels, modify, scheduleCancel,
+       │                                userOutcome conversions — L1 agent signing)
        ├─ HIP4Auth                    (auth lifecycle)
-       └─ HIP4WalletAdapter           (USDH buy/sell, transfers, withdrawals)
+       └─ HIP4WalletAdapter           (USDH buy/sell, transfers, withdrawals,
+                                        spotSend, sendToEvm)
+
+Standalone modules (importable from "@perps/hip4"):
+  ├─ src/streams/*                    (createPriceFeed, createPerpPriceFeed,
+  │                                    candle aggregation utilities)
+  ├─ src/utils/orderbook.ts           (computeTradeCost, computeEstimatedCost,
+  │                                    computePotentialReturn)
+  ├─ src/adapter/hyperliquid/ramp.ts  (USDH on/off-ramp via Coinbase + Across,
+  │                                    mainnet only)
+  └─ src/lib/precision/*              (inline BigInt-backed Decimal class —
+                                       zero runtime deps replacement for decimal.js)
 ```
 
 The factory creates a `HyperliquidHip4Adapter` which composes six sub-adapters around a shared `HIP4Client`. The client handles all HTTP transport (info + exchange endpoints) and exposes the WebSocket URL. Each sub-adapter maps raw Hyperliquid responses to the SDK's normalized types. Side names from `outcomeMeta.sideSpecs` are cached permanently and shared across events, market-data, and account adapters via a resolver function.
 
-### Exports from `src/adapter/index.ts`
+### Public Exports
 
-| Export                        | Kind             |
-| ----------------------------- | ---------------- |
-| `createHIP4Adapter`           | Factory function |
-| `CreateHIP4AdapterConfig`     | Type             |
-| `PredictionsAdapter`          | Type (interface) |
-| `PredictionEventAdapter`      | Type (interface) |
-| `PredictionMarketDataAdapter` | Type (interface) |
-| `PredictionAccountAdapter`    | Type (interface) |
-| `PredictionTradingAdapter`    | Type (interface) |
-| `PredictionAuthAdapter`       | Type (interface) |
-| `Unsubscribe`                 | Type             |
-| `splitHexSignature`           | Utility function |
-| `normalizeSignature`          | Utility function |
-| `HIP4Signer`                  | Type (interface) |
-| `HLSignature`                 | Type (interface) |
-| `HIP4WalletAdapter`           | Class            |
-| `USDH_ASSET_ID`               | Constant         |
-| `USDH_SPOT_PAIR`              | Constant         |
-| `UsdClassTransferParams`      | Type             |
-| `WithdrawParams`              | Type             |
-| `UsdSendParams`               | Type             |
-| `WalletActionResult`          | Type             |
+The package exposes ~70 named runtime exports plus their type counterparts. Highlights:
+
+| Category | Examples |
+| -------- | -------- |
+| Factory + config | `createHIP4Adapter`, `CreateHIP4AdapterConfig` |
+| Adapter interfaces | `PredictionsAdapter`, `PredictionEventAdapter`, `PredictionMarketDataAdapter`, `PredictionAccountAdapter`, `PredictionTradingAdapter`, `PredictionAuthAdapter`, `PredictionWalletAdapter`, `Unsubscribe`, `WalletActionResult` |
+| Concrete classes | `HIP4Client`, `HIP4EventAdapter`, `HIP4TradingAdapter`, `HIP4WalletAdapter`, `HyperliquidHip4Adapter`, `HLApiError` |
+| Market types (v2.2) | `HIP4Market`, `DefaultBinaryMarket`, `LabelledBinaryMarket`, `MultiOutcomeMarket`, `PriceBucketMarket`, `MarketType`, `MarketSide`, `FetchMarketsParams`, `MarketsByType`, `MarketsByQuestion` |
+| Pricing + classification | `computeTickSize`, `roundToTick`, `formatPrice`, `formatPredictionPrice`, `stripZeros`, `getMinShares`, `MIN_NOTIONAL`, `classifyOutcome`, `classifyAllOutcomes`, `buildQuestionIndex`, `getPriceBucketBounds`, `parseDescription`, `parsePriceBucketDescription`, `discoverPriceBinaryMarkets`, `formatMarketLabel`, `timeToExpiry`, `periodMinutes` |
+| Coin helpers | `outcomeCoin`, `sideCoin`, `sideAssetId`, `parseSideCoin`, `parseOutcomeCoin` |
+| Signing | `splitHexSignature`, `normalizeSignature`, `getAgentApprovalTypedData`, `submitAgentApproval`, `getBuilderFeeApprovalTypedData`, `submitBuilderFeeApproval`, `isUsdClassTransferRequired`, `HIP4Signer`, `HLSignature` |
+| Wallet constants | `USDH_ASSET_ID`, `USDH_SPOT_PAIR`, plus mainnet/testnet variants: `USDH_ASSET_ID_MAINNET`, `USDH_ASSET_ID_TESTNET`, `USDH_TOKEN_INDEX_*`, `USDH_TOKEN_HASH_*`, `USDH_EVM_ADDRESS_*`, `USDH_HL_TOKEN_*`, `USDC_HL_TOKEN_*`, `USDH_CORE_DECIMALS`, `USDH_EVM_DECIMALS`, `ALL_DEXS` |
+| Core ↔ EVM bridging (v2.2) | `deriveCoreEvmSystemAddress`, `HYPE_CORE_EVM_SYSTEM_ADDRESS`, `MAX_CORE_EVM_TOKEN_INDEX`, `CORE_TO_EVM_GAS_LIMIT`, `estimateCoreToEvmFee`, `medianBaseFeeWei`, `findHypeUsdcSpotPairCoin`, `selectHypeSpotMarkPx`, `HYPE_USDC_SPOT_PAIR_*` |
+| Streams (v2.2) | `createPriceFeed`, `createPerpPriceFeed`, `processTick`, `candleBoundaryMs`, `intervalToMs`, `PriceFeedSnapshot`, `PerpPriceFeedSnapshot`, `PriceFeedCandle` |
+| Orderbook utils (v2.2) | `computeTradeCost`, `computeEstimatedCost`, `computePotentialReturn`, `TradeCostResult` |
+| Trading params | `PredictionOrderParams`, `PredictionOrderResult`, `PredictionBatchOrderResult`, `PredictionCancelParams`, `PredictionModifyParams`, `SplitOutcomeParams`, `MergeOutcomeParams`, `MergeQuestionParams`, `NegateOutcomeParams` |
+| Wallet params | `UsdClassTransferParams`, `WithdrawParams`, `UsdSendParams`, `SpotSendParams`, `SendToEvmWithDataParams` |
+| HL action / WS types | `HLOrderAction`, `HLCancelAction`, `HLCancelResponse`, `HLModifyAction`, `HLBatchModifyAction`, `HLScheduleCancelAction`, `HLUserOutcomeAction` (and its variants), `HLOutcome`, `HLOutcomeMeta`, `HLQuestion`, `HLSettledOutcome`, plus the full `HLWs*` family for typed subscriptions |
+
+> The full export list lives at [src/index.ts](../src/index.ts) and [src/adapter/index.ts](../src/adapter/index.ts) — both barrels use named re-exports (no wildcards).
 
 ---
 
@@ -93,11 +103,16 @@ The factory creates a `HyperliquidHip4Adapter` which composes six sub-adapters a
 
 Passed to `createHIP4Adapter()`.
 
-| Field         | Type       | Default                  | Description                                  |
-| ------------- | ---------- | ------------------------ | -------------------------------------------- |
-| `testnet`     | `boolean?` | `true`                   | Use testnet URLs if true, mainnet if false\* |
-| `infoUrl`     | `string?`  | (derived from `testnet`) | Override the info API URL                    |
-| `exchangeUrl` | `string?`  | (derived from `testnet`) | Override the exchange API URL                |
+| Field            | Type       | Default                  | Description                                                                                                |
+| ---------------- | ---------- | ------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `testnet`        | `boolean?` | `true`                   | Use testnet URLs if true, mainnet if false\*                                                               |
+| `infoUrl`        | `string?`  | (derived from `testnet`) | Override the info API URL                                                                                  |
+| `exchangeUrl`    | `string?`  | (derived from `testnet`) | Override the exchange API URL                                                                              |
+| `builderAddress` | `string?`  | -                        | Builder address for fee collection. When set, all orders include this builder (lowercased before signing). |
+| `builderFee`     | `number?`  | -                        | Builder fee in tenths of a basis point (`0–1000`). `100` = 0.1%. `1000` = 1.0% maximum.                    |
+| `logger`         | `function?`| no-op                    | `(level: "debug" \| "info" \| "warn" \| "error", msg: string, data?: unknown) => void`.                    |
+
+> **v2.2**: `builderAddress` / `builderFee` were added at the adapter level. They can also be passed per order on `placeOrder` to override the adapter-level values.
 
 ### `HIP4ClientConfig`
 
@@ -647,17 +662,35 @@ Full flow:
 
 Console logging: The adapter logs market order price calculation details and limit order prices, plus the raw order wire JSON.
 
-#### `cancelOrder(params: PredictionCancelParams): Promise<void>`
+#### `placeOrders(params: PredictionOrderParams[]): Promise<PredictionBatchOrderResult>`
 
-1. Auth check - throws `"Not authenticated..."` if no signer
-2. Resolves asset ID using `sideAssetId(outcomeId, 0)` - **always cancels on side 0**
-3. Parses `orderId` to integer
-4. Builds `HLCancelAction`: `{ type: "cancel", cancels: [{ a: assetId, o: oid }] }`
-5. Signs with `CANCEL_TYPES` and sends via `client.cancelOrder()`
+Batch counterpart of `placeOrder`. Builds one signed action containing every wire and submits it in a single round-trip. Per-order validation runs first; orders that fail validation are reported in the result without affecting the rest. Returns `{ success, results: PredictionOrderResult[] }`. Never throws.
 
-#### `cancelAllOrders(marketId?: string): Promise<void>`
+#### `modifyOrder(params: PredictionModifyParams): Promise<PredictionOrderResult>`
 
-**Not implemented.** Throws: `"cancelAllOrders is not yet supported for HIP-4 markets. Cancel orders individually."`
+Modify a resting order's price and/or size. When only the size changes, HL preserves queue priority. The result has the same shape as `placeOrder` and carries the (possibly new) `orderId`.
+
+#### `cancelOrder(params: PredictionCancelParams[]): Promise<HLCancelResponse>`
+
+**v2.2 signature change.** Previously took a single `PredictionCancelParams` and returned `void`. Now takes an array of cancel params and returns the typed `HLCancelResponse` from HL (so callers can inspect per-cancel statuses). Each entry resolves its asset ID via `outcome` if provided, otherwise falls back to `sideAssetId(outcomeId, 0)`. Throws on empty array or missing auth.
+
+#### `scheduleCancel(time: number | null): Promise<WalletActionResult>`
+
+HL "dead-man's switch". Registers a future Unix-millisecond timestamp at which HL cancels every open order from the signing agent. Per-agent (a new schedule replaces the previous one), not per-order. Pass `null` to clear an existing schedule. Intended use: arm ~1h before a HIP-4 market's settlement so resting limits don't sit through the auction unprotected.
+
+#### `splitOutcome / mergeOutcome / mergeQuestion / negateOutcome`
+
+`userOutcome` share-conversion actions. All four share the same `type: "userOutcome"` envelope and use L1 agent signing. They affect the user's spot balances directly (no order book interaction).
+
+| Method | What it does |
+|--------|-------------|
+| `splitOutcome({ outcome, amount })` | Split X quote tokens into X Yes + X No shares of one outcome |
+| `mergeOutcome({ outcome, amount? })` | Merge X paired Yes+No shares back into X quote tokens (`amount: null` = max available) |
+| `mergeQuestion({ question, amount? })` | Merge X Yes shares from every outcome of a question into X quote tokens |
+| `negateOutcome({ question, outcome, amount })` | Convert X No shares of one outcome into X Yes shares of every other outcome under the same question |
+
+> The wire sub-key for negate is `negateOutcome` (matching the page heading), not `negateQuestion` as the docs body's example renders it. Verified against HL's testnet "Convert Outcomes" UI.
+
 
 ### Price Formatting
 
@@ -684,12 +717,14 @@ Since prediction markets are always 0-1, prices always get 4 decimal places in p
 | Input type | Input TIF                       | HL TIF           |
 | ---------- | ------------------------------- | ---------------- |
 | `"market"` | (ignored)                       | `FrontendMarket` |
-| `"limit"`  | `"FOK"`                         | `Ioc`            |
+| `"limit"`  | `"FOK"`                         | **rejected** — throws |
 | `"limit"`  | `"FAK"`                         | `Ioc`            |
 | `"limit"`  | `"GTD"`                         | `Gtc`            |
 | `"limit"`  | `"GTC"` / `undefined` / default | `Gtc`            |
 
-Note: Both FOK and FAK map to HL's `Ioc` (Immediate or Cancel). GTD maps to `Gtc` (no actual GTD support).
+> **v2.2 semantics change**: FOK is now rejected explicitly. HL's `Ioc` is *Fill-and-Kill* (allows partial fills), not *Fill-or-Kill*. The previous FOK→Ioc mapping silently gave callers partial-fill behavior they didn't ask for. Callers wanting all-or-nothing semantics must inspect fill size in the response themselves; use `FAK` for immediate partial fills, or `GTC` for resting orders.
+
+GTD maps to `Gtc` (no actual GTD support).
 
 ### Asset ID Resolution
 
@@ -1279,14 +1314,19 @@ type Unsubscribe = () => void;
 
 #### `PredictionMarketDataAdapter`
 
-| Method               | Signature                                                                        |
-| -------------------- | -------------------------------------------------------------------------------- |
-| `fetchOrderBook`     | `(marketId: string) => Promise<PredictionOrderBook>`                             |
-| `fetchPrice`         | `(marketId: string) => Promise<PredictionPrice>`                                 |
-| `fetchTrades`        | `(marketId: string, limit?: number) => Promise<PredictionTrade[]>`               |
-| `subscribeOrderBook` | `(marketId: string, onData: (book: PredictionOrderBook) => void) => Unsubscribe` |
-| `subscribePrice`     | `(marketId: string, onData: (price: PredictionPrice) => void) => Unsubscribe`    |
-| `subscribeTrades`    | `(marketId: string, onData: (trade: PredictionTrade) => void) => Unsubscribe`    |
+| Method                     | Signature                                                                                                                              |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `fetchOrderBook`           | `(marketId: string, sideIndex?: number) => Promise<PredictionOrderBook>`                                                               |
+| `fetchPrice`               | `(marketId: string) => Promise<PredictionPrice>`                                                                                       |
+| `fetchTrades`              | `(marketId: string, limit?: number) => Promise<PredictionTrade[]>`                                                                     |
+| `fetchCandles`             | `(marketId: string, interval?: string, startTime?: number, endTime?: number) => Promise<Candle[]>`                                     |
+| `subscribeOrderBook`       | `(marketId: string, onData: (book: PredictionOrderBook) => void) => Unsubscribe`                                                       |
+| `subscribePrice`           | `(marketId: string, onData: (price: PredictionPrice) => void) => Unsubscribe`                                                          |
+| `subscribeTrades`          | `(marketId: string, onData: (trade: PredictionTrade) => void) => Unsubscribe`                                                          |
+| `subscribeAllMids`         | `(onData: (data: HLWsAllMidsData) => void) => Unsubscribe`                                                                             |
+| `subscribeActiveAssetCtx`  | `(coin: string, onData: (data: HLWsActiveSpotAssetCtxData) => void) => Unsubscribe`                                                    |
+| `subscribeSpotAssetCtxs`   | `(onData: (data: HLWsSpotAssetCtxsData) => void) => Unsubscribe`                                                                       |
+| `subscribePerpAssetCtx`    | `(coin: string, onData: (data: HLWsActivePerpAssetCtxData) => void) => Unsubscribe`                                                    |
 
 #### `PredictionAccountAdapter`
 
@@ -1298,11 +1338,14 @@ type Unsubscribe = () => void;
 
 #### `PredictionTradingAdapter`
 
-| Method            | Signature                                                           |
-| ----------------- | ------------------------------------------------------------------- |
-| `placeOrder`      | `(params: PredictionOrderParams) => Promise<PredictionOrderResult>` |
-| `cancelOrder`     | `(params: PredictionCancelParams) => Promise<void>`                 |
-| `cancelAllOrders` | `(marketId?: string) => Promise<void>`                              |
+| Method            | Signature                                                                            |
+| ----------------- | ------------------------------------------------------------------------------------ |
+| `placeOrder`      | `(params: PredictionOrderParams) => Promise<PredictionOrderResult>`                  |
+| `placeOrders`     | `(params: PredictionOrderParams[]) => Promise<PredictionBatchOrderResult>`           |
+| `modifyOrder`     | `(params: PredictionModifyParams) => Promise<PredictionOrderResult>`                 |
+| `cancelOrder`     | `(params: PredictionCancelParams[]) => Promise<HLCancelResponse>`                    |
+
+`HIP4TradingAdapter` (the concrete class) additionally exposes `scheduleCancel`, `splitOutcome`, `mergeOutcome`, `mergeQuestion`, and `negateOutcome`. See [§ 8 Trading Adapter](#8-trading-adapter) for details.
 
 #### `PredictionAuthAdapter`
 
@@ -1375,18 +1418,16 @@ All exchange actions use `Date.now()` as the nonce. This provides millisecond-le
 
 ### Unimplemented Features
 
-1. **`cancelAllOrders`**: Throws an error. Must cancel orders individually.
-2. **`PredictionOrderParams.expiration`**: Field exists on the type but is never read by the trading adapter.
-3. **`PredictionAuthState.apiKey`**: Field exists on the type but is never populated.
+1. **`PredictionOrderParams.expiration`**: Field exists on the type but is never read by the trading adapter.
+2. **`PredictionAuthState.apiKey`**: Field exists on the type but is never populated.
+3. **No "cancel all" helper**: Cancel multiple orders by passing an array to `cancelOrder([...])`. There is no separate `cancelAllOrders` method.
 
 ### Unused Client Methods
 
 These methods exist on `HIP4Client` but are not called by any adapter:
 
-- `fetchCandleSnapshot` - no candle/chart support in the SDK
 - `fetchClearinghouseState` - perps clearinghouse, not used for HIP-4
 - `fetchUserFills` - superseded by `fetchUserFillsByTime`
-- `fetchFrontendOpenOrders` - no open orders view in the SDK
 
 ### Data Gaps
 
@@ -1404,11 +1445,11 @@ These methods exist on `HIP4Client` but are not called by any adapter:
 
 ### Trading Limitations
 
-15. **Cancel always targets side 0**: `cancelOrder` resolves the asset ID using `sideAssetId(outcomeId, 0)` regardless of which side the order was placed on. This will fail for orders on side 1.
-16. **FOK and FAK both map to IOC**: Hyperliquid's `Ioc` (Immediate or Cancel) is used for both Fill-or-Kill and Fill-and-Kill. True FOK semantics (all-or-nothing) are not enforced.
+15. **Cancel side resolution**: `cancelOrder` resolves the side from the per-entry `outcome` field (e.g. `"#17581"`) when present; otherwise it falls back to side 0. Pass `outcome` explicitly when cancelling orders on side 1.
+16. **FOK is rejected**: HL's `Ioc` is *Fill-and-Kill* (allows partial fills), not Fill-or-Kill. As of v2.2 the SDK rejects FOK explicitly so callers don't silently receive partial-fill behavior. Use `FAK` for IoC semantics or `GTC` for resting orders.
 17. **GTD maps to GTC**: There is no actual Good-Till-Date implementation. GTD orders behave as GTC.
 18. **`reduceOnly` is always false**: The order wire sets `r: false` unconditionally. There is no way to place reduce-only orders.
-19. **Single-order batching**: `placeOrder` always sends exactly one order per API call (`orders: [orderWire]`). No batch order placement.
+19. **Batch placement available**: `placeOrders(params[])` sends multiple orders in a single signed action. Use `placeOrder` for the single-order convenience path.
 
 ### WebSocket Limitations
 
@@ -1608,11 +1649,11 @@ const limitResult = await adapter.trading.placeOrder({
   timeInForce: "GTC",
 });
 
-// Cancel an order
-await adapter.trading.cancelOrder({
-  marketId: "516",
-  orderId: "12345",
-});
+// Cancel one or more orders (v2.2: takes an array, returns HLCancelResponse)
+const cancelRes = await adapter.trading.cancelOrder([
+  { marketId: "516", orderId: "12345", outcome: "#5160" },
+]);
+// cancelRes.response.data.statuses lets you inspect per-cancel results.
 ```
 
 ### Fetching Activity (Programmatic)
