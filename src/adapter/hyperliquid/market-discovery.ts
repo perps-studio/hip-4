@@ -9,13 +9,22 @@
 // Types
 // ---------------------------------------------------------------------------
 
-export type MarketType = "priceBinary";
+export type MarketType = "priceBinary" | "priceBucket";
 
 export interface ParsedDescription {
-  class: MarketType;
+  class: "priceBinary";
   underlying: string;
   expiry: Date;
   targetPrice: number;
+  period: string;
+}
+
+export interface ParsedPriceBucketDescription {
+  class: "priceBucket";
+  underlying: string;
+  expiry: Date;
+  /** Sorted ascending price thresholds. N thresholds → N+1 buckets. */
+  priceThresholds: number[];
   period: string;
 }
 
@@ -76,6 +85,47 @@ export function parseDescription(desc: string): ParsedDescription | null {
     underlying: fields.underlying,
     expiry: parseExpiry(fields.expiry),
     targetPrice: parseFloat(fields.targetPrice),
+    period: fields.period,
+  };
+}
+
+/**
+ * Parse a pipe-delimited priceBucket description string.
+ *
+ * Format: "class:priceBucket|underlying:BTC|expiry:20260505-1700|priceThresholds:81015.3,81258.7|period:15m"
+ *
+ * Returns null if not a valid priceBucket description.
+ */
+export function parsePriceBucketDescription(
+  desc: string,
+): ParsedPriceBucketDescription | null {
+  if (!desc || !desc.includes("|")) return null;
+
+  const fields: Record<string, string> = {};
+  for (const pair of desc.split("|")) {
+    const idx = pair.indexOf(":");
+    if (idx > 0) {
+      fields[pair.slice(0, idx)] = pair.slice(idx + 1);
+    }
+  }
+
+  if (fields.class !== "priceBucket") return null;
+  if (!fields.underlying || !fields.expiry || !fields.priceThresholds || !fields.period) {
+    return null;
+  }
+
+  const priceThresholds = fields.priceThresholds
+    .split(",")
+    .map((s) => parseFloat(s.trim()))
+    .filter((n) => Number.isFinite(n))
+    .sort((a, b) => a - b);
+  if (priceThresholds.length === 0) return null;
+
+  return {
+    class: "priceBucket",
+    underlying: fields.underlying,
+    expiry: parseExpiry(fields.expiry),
+    priceThresholds,
     period: fields.period,
   };
 }

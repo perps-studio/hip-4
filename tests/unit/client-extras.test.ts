@@ -226,6 +226,43 @@ describe("isOutcomeCoin with + prefix", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// fetchSettledOutcome
+// ---------------------------------------------------------------------------
+
+describe("fetchSettledOutcome", () => {
+  let originalFetch: typeof globalThis.fetch;
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("returns settled outcome data on success", async () => {
+    const settled = {
+      spec: { outcome: 516, name: "Test", description: "desc", sideSpecs: [] },
+      settleFraction: "1.0",
+      details: "settled yes",
+    };
+    vi.stubGlobal("fetch", mockFetchOk(settled));
+
+    const client = new HIP4Client();
+    const result = await client.fetchSettledOutcome(516);
+    expect(result).toEqual(settled);
+  });
+
+  it("returns null when API returns null body", async () => {
+    vi.stubGlobal("fetch", mockFetchOk(null));
+
+    const client = new HIP4Client();
+    const result = await client.fetchSettledOutcome(99999);
+    expect(result).toBeNull();
+  });
+});
+
 describe("coinOutcomeId with + prefix", () => {
   it("extracts outcome ID from + prefixed coin", () => {
     expect(coinOutcomeId("+17580")).toBe(1758);
